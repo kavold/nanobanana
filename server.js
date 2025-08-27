@@ -16,7 +16,7 @@ app.use(express.static('public'));
 const upload = multer({
   dest: 'uploads/',
   limits: {
-    fileSize: 10 * 1024 * 1024,
+    fileSize: 50 * 1024 * 1024, // 50MB per file
     files: 2
   },
   fileFilter: (req, file, cb) => {
@@ -38,6 +38,20 @@ function fileToGenerativePart(path, mimeType) {
     }
   };
 }
+
+// Error handling middleware for multer
+app.use('/generate', (error, req, res, next) => {
+  if (error instanceof multer.MulterError) {
+    if (error.code === 'LIMIT_FILE_SIZE') {
+      return res.status(400).json({ error: 'Filen er for stor. Maksimum størrelse er 50MB per fil.' });
+    }
+    if (error.code === 'LIMIT_FILE_COUNT') {
+      return res.status(400).json({ error: 'For mange filer. Maksimum 2 filer tillatt.' });
+    }
+    return res.status(400).json({ error: 'Fileopplastingsfeil: ' + error.message });
+  }
+  return res.status(500).json({ error: 'Server feil: ' + error.message });
+});
 
 app.post('/generate', upload.array('images', 2), async (req, res) => {
   try {

@@ -261,11 +261,10 @@
             e.preventDefault();
             
             const prompt = document.getElementById('prompt').value;
-            const images = document.getElementById('images').files;
             const resultDiv = document.getElementById('result');
             const loadingDiv = document.getElementById('loading');
             
-            if (images.length > 2) {
+            if (selectedFiles.length > 2) {
                 alert('Maksimalt 2 bilder tillatt');
                 return;
             }
@@ -276,17 +275,32 @@
             const formData = new FormData();
             formData.append('prompt', prompt);
             
-            for (let i = 0; i < images.length; i++) {
-                formData.append('images', images[i]);
-            }
+            selectedFiles.forEach(file => {
+                formData.append('images', file);
+            });
             
             try {
+                console.log('Sending request with', selectedFiles.length, 'files');
+                
                 const response = await fetch('/generate', {
                     method: 'POST',
                     body: formData
                 });
                 
-                const data = await response.json();
+                console.log('Response status:', response.status);
+                console.log('Response headers:', response.headers.get('content-type'));
+                
+                const responseText = await response.text();
+                console.log('Raw response:', responseText);
+                
+                let data;
+                try {
+                    data = JSON.parse(responseText);
+                } catch (parseError) {
+                    console.error('JSON parse error:', parseError);
+                    console.error('Response was:', responseText.substring(0, 200));
+                    throw new Error('Serveren returnerte ugyldig data');
+                }
                 
                 loadingDiv.style.display = 'none';
                 resultDiv.style.display = 'block';
@@ -311,6 +325,7 @@
                 }
                 
             } catch (error) {
+                console.error('Frontend error:', error);
                 loadingDiv.style.display = 'none';
                 resultDiv.style.display = 'block';
                 resultDiv.className = 'result error';
@@ -322,22 +337,10 @@
             document.getElementById('prompt').value = text;
         }
         
-        let uploadedFiles = [];
-        
-        function updateFileInput() {
-            const fileInput = document.getElementById('images');
-            const dt = new DataTransfer();
-            
-            uploadedFiles.forEach(file => {
-                dt.items.add(file);
-            });
-            
-            fileInput.files = dt.files;
-        }
+        let selectedFiles = [];
         
         function removeImage(index) {
-            uploadedFiles.splice(index, 1);
-            updateFileInput();
+            selectedFiles.splice(index, 1);
             updatePreview();
         }
         
@@ -345,7 +348,7 @@
             const previewDiv = document.getElementById('imagePreview');
             previewDiv.innerHTML = '';
             
-            uploadedFiles.forEach((file, index) => {
+            selectedFiles.forEach((file, index) => {
                 const reader = new FileReader();
                 
                 reader.onload = function(e) {
@@ -360,7 +363,10 @@
                     const removeBtn = document.createElement('button');
                     removeBtn.className = 'remove-image';
                     removeBtn.innerHTML = '×';
-                    removeBtn.onclick = function() { removeImage(index); };
+                    removeBtn.onclick = function(event) { 
+                        event.preventDefault();
+                        removeImage(index); 
+                    };
                     removeBtn.title = 'Fjern bilde';
                     
                     container.appendChild(img);
@@ -373,18 +379,15 @@
         }
         
         document.getElementById('images').addEventListener('change', function(e) {
-            const newFiles = Array.from(e.target.files);
+            const files = Array.from(e.target.files);
             
-            // Add new files to existing ones, but respect the 2 file limit
-            for (let i = 0; i < newFiles.length && uploadedFiles.length < 2; i++) {
-                uploadedFiles.push(newFiles[i]);
-            }
-            
-            if (uploadedFiles.length + newFiles.length > 2) {
+            if (files.length > 2) {
                 alert('Maksimalt 2 bilder tillatt. De første 2 bildene ble valgt.');
+                selectedFiles = files.slice(0, 2);
+            } else {
+                selectedFiles = files;
             }
             
-            updateFileInput();
             updatePreview();
         });
     </script>
