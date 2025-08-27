@@ -1,0 +1,392 @@
+<!DOCTYPE html>
+<html lang="no">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Knarilds Nano Banan AI-bilde-generator</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #333;
+            text-align: center;
+            margin-bottom: 30px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 15px;
+            flex-wrap: wrap;
+        }
+        .logo {
+            width: 60px;
+            height: 60px;
+            border-radius: 50%;
+        }
+        .title-text {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        .main-title {
+            font-size: 2em;
+            margin: 0;
+            line-height: 1.1;
+        }
+        .subtitle {
+            font-size: 0.6em;
+            color: #666;
+            margin: 5px 0 0 0;
+            font-weight: normal;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+        .form-group {
+            margin-bottom: 20px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+            color: #555;
+        }
+        textarea, input[type="file"] {
+            width: 100%;
+            padding: 10px;
+            border: 2px solid #ddd;
+            border-radius: 5px;
+            box-sizing: border-box;
+        }
+        textarea {
+            height: 100px;
+            resize: vertical;
+            font-family: Arial, sans-serif;
+        }
+        button {
+            background-color: #4CAF50;
+            color: white;
+            padding: 12px 24px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 16px;
+            width: 100%;
+        }
+        button:hover {
+            background-color: #45a049;
+        }
+        button:disabled {
+            background-color: #cccccc;
+            cursor: not-allowed;
+        }
+        .result {
+            margin-top: 30px;
+            padding: 20px;
+            border-radius: 5px;
+            display: none;
+        }
+        .success {
+            background-color: #d4edda;
+            border: 1px solid #c3e6cb;
+            color: #155724;
+        }
+        .error {
+            background-color: #f8d7da;
+            border: 1px solid #f5c6cb;
+            color: #721c24;
+        }
+        .generated-image {
+            max-width: 100%;
+            height: auto;
+            border-radius: 5px;
+            margin-top: 10px;
+        }
+        .image-preview {
+            display: flex;
+            gap: 10px;
+            margin-top: 10px;
+            flex-wrap: wrap;
+        }
+        .image-container {
+            position: relative;
+            display: inline-block;
+        }
+        .preview-image {
+            max-width: 150px;
+            max-height: 150px;
+            object-fit: cover;
+            border-radius: 5px;
+            border: 2px solid #ddd;
+        }
+        .remove-image {
+            position: absolute;
+            top: -8px;
+            right: -8px;
+            background-color: #dc3545;
+            color: white;
+            border: none;
+            border-radius: 50%;
+            width: 24px;
+            height: 24px;
+            cursor: pointer;
+            font-size: 16px;
+            line-height: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+        }
+        .remove-image:hover {
+            background-color: #c82333;
+        }
+        .example-prompts {
+            background-color: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 5px;
+            padding: 15px;
+            margin-bottom: 20px;
+        }
+        .example-prompts h3 {
+            margin-top: 0;
+            color: #495057;
+            font-size: 16px;
+        }
+        .prompt-example {
+            background-color: white;
+            border: 1px solid #ced4da;
+            border-radius: 3px;
+            padding: 8px 12px;
+            margin: 5px 0;
+            cursor: pointer;
+            font-size: 14px;
+            transition: background-color 0.2s;
+        }
+        .prompt-example:hover {
+            background-color: #e9ecef;
+        }
+        .download-btn {
+            background-color: #007bff;
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 3px;
+            cursor: pointer;
+            margin-top: 10px;
+            text-decoration: none;
+            display: inline-block;
+        }
+        .download-btn:hover {
+            background-color: #0056b3;
+        }
+        .loading {
+            text-align: center;
+            padding: 20px;
+            display: none;
+        }
+        .spinner {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #3498db;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 2s linear infinite;
+            margin: 0 auto;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>
+            <img src="knarild.png" alt="Knarild Logo" class="logo">
+            <div class="title-text">
+                <div class="main-title">🍌 Knarilds</div>
+                <div class="subtitle">Nano-Banana AI-bilde-generator</div>
+            </div>
+        </h1>
+        
+        <div class="example-prompts">
+            <h3>Eksempel bruksområder - Klikk for å prøve:</h3>
+            <div class="prompt-example" onclick="setPrompt('Lag et bilde av katten min som spiser en nano-banana på en fin restaurant under tvillingtegnet')">🐱 Person/dyr med nano-banana - Forstår sammenhenger og kombinerer ting som normalt ikke hører sammen</div>
+            <div class="prompt-example" onclick="setPrompt('Fjern bakgrunnen fra dette bildet og gjør den gjennomsiktig')">✂️ Bakgrunnsfjerning - Klipper ut hovedmotivet nøyaktig uten å ødelegge kantene</div>
+            <div class="prompt-example" onclick="setPrompt('Bland disse to bildene sammen sømløst')">🔄 Flerbilde-sammenslåing - Setter sammen bilder så det ser naturlig ut med riktig lys og perspektiv</div>
+            <div class="prompt-example" onclick="setPrompt('Endre lyset i dette bildet til gyllen time')">🌅 Lysjustering - Endrer stemning og lys i bildet uten at det ser kunstig ut</div>
+            <div class="prompt-example" onclick="setPrompt('Sett denne personen i et futuristisk bymiljø')">🏙️ Scene-endring - Flytter personer til nye steder uten å endre hvordan de ser ut</div>
+            <div class="prompt-example" onclick="setPrompt('Lag et fotorealistisk bilde av en drage som flyr over en middelalderborg ved solnedgang')">🐉 Fantasi-scene-generering - Lager fantasibilder som ser ekte ut ved å bruke kunnskap om hvordan ting ser ut</div>
+            <div class="prompt-example" onclick="setPrompt('Design en moderne logo for en tech startup som heter \"NanoTech\", gjør den minimalistisk og profesjonell')">💼 Logo-design - Skjønner hva som ser profesjonelt ut og lager rene, moderne design</div>
+        </div>
+        
+        <form id="generateForm">
+            <div class="form-group">
+                <label for="prompt">Beskrivelse (påkrevd):</label>
+                <textarea id="prompt" placeholder="Beskriv bildet du vil generere..." required></textarea>
+            </div>
+            
+            <div class="form-group">
+                <label for="images">Inngangsbilder (valgfritt, maks 2):</label>
+                <input type="file" id="images" accept="image/*" multiple>
+                <small style="color: #666;">Du kan laste opp inntil 2 bilder som referanse eller inngang for generering.</small>
+                <div id="imagePreview" class="image-preview"></div>
+            </div>
+            
+            <button type="submit">Generer bilde</button>
+        </form>
+        
+        <div id="loading" class="loading">
+            <div class="spinner"></div>
+            <p>Genererer bildet ditt...</p>
+        </div>
+        
+        <div id="result" class="result">
+            <div id="resultText"></div>
+            <div id="resultImage"></div>
+        </div>
+    </div>
+
+    <script>
+        document.getElementById('generateForm').addEventListener('submit', async function(e) {
+            e.preventDefault();
+            
+            const prompt = document.getElementById('prompt').value;
+            const images = document.getElementById('images').files;
+            const resultDiv = document.getElementById('result');
+            const loadingDiv = document.getElementById('loading');
+            
+            if (images.length > 2) {
+                alert('Maksimalt 2 bilder tillatt');
+                return;
+            }
+            
+            resultDiv.style.display = 'none';
+            loadingDiv.style.display = 'block';
+            
+            const formData = new FormData();
+            formData.append('prompt', prompt);
+            
+            for (let i = 0; i < images.length; i++) {
+                formData.append('images', images[i]);
+            }
+            
+            try {
+                const response = await fetch('/generate', {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                const data = await response.json();
+                
+                loadingDiv.style.display = 'none';
+                resultDiv.style.display = 'block';
+                
+                if (response.ok) {
+                    resultDiv.className = 'result success';
+                    let html = '';
+                    
+                    if (data.text) {
+                        html += `<p><strong>Generert tekst:</strong></p><p>${data.text}</p>`;
+                    }
+                    
+                    if (data.image) {
+                        html += `<p><strong>Generert bilde:</strong></p><img src="${data.image}" alt="Generert bilde" class="generated-image">`;
+                        html += `<br><a href="${data.image}" download="knarilds-nano-banan-generert.png" class="download-btn">Last ned bilde</a>`;
+                    }
+                    
+                    document.getElementById('resultText').innerHTML = html;
+                } else {
+                    resultDiv.className = 'result error';
+                    document.getElementById('resultText').innerHTML = `<strong>Feil:</strong> ${data.error}`;
+                }
+                
+            } catch (error) {
+                loadingDiv.style.display = 'none';
+                resultDiv.style.display = 'block';
+                resultDiv.className = 'result error';
+                document.getElementById('resultText').innerHTML = `<strong>Feil:</strong> ${error.message}`;
+            }
+        });
+        
+        function setPrompt(text) {
+            document.getElementById('prompt').value = text;
+        }
+        
+        let uploadedFiles = [];
+        
+        function updateFileInput() {
+            const fileInput = document.getElementById('images');
+            const dt = new DataTransfer();
+            
+            uploadedFiles.forEach(file => {
+                dt.items.add(file);
+            });
+            
+            fileInput.files = dt.files;
+        }
+        
+        function removeImage(index) {
+            uploadedFiles.splice(index, 1);
+            updateFileInput();
+            updatePreview();
+        }
+        
+        function updatePreview() {
+            const previewDiv = document.getElementById('imagePreview');
+            previewDiv.innerHTML = '';
+            
+            uploadedFiles.forEach((file, index) => {
+                const reader = new FileReader();
+                
+                reader.onload = function(e) {
+                    const container = document.createElement('div');
+                    container.className = 'image-container';
+                    
+                    const img = document.createElement('img');
+                    img.src = e.target.result;
+                    img.className = 'preview-image';
+                    img.alt = `Forhåndsvisning ${index + 1}`;
+                    
+                    const removeBtn = document.createElement('button');
+                    removeBtn.className = 'remove-image';
+                    removeBtn.innerHTML = '×';
+                    removeBtn.onclick = function() { removeImage(index); };
+                    removeBtn.title = 'Fjern bilde';
+                    
+                    container.appendChild(img);
+                    container.appendChild(removeBtn);
+                    previewDiv.appendChild(container);
+                };
+                
+                reader.readAsDataURL(file);
+            });
+        }
+        
+        document.getElementById('images').addEventListener('change', function(e) {
+            const newFiles = Array.from(e.target.files);
+            
+            // Add new files to existing ones, but respect the 2 file limit
+            for (let i = 0; i < newFiles.length && uploadedFiles.length < 2; i++) {
+                uploadedFiles.push(newFiles[i]);
+            }
+            
+            if (uploadedFiles.length + newFiles.length > 2) {
+                alert('Maksimalt 2 bilder tillatt. De første 2 bildene ble valgt.');
+            }
+            
+            updateFileInput();
+            updatePreview();
+        });
+    </script>
+</body>
+</html>
