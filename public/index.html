@@ -50,13 +50,16 @@
             text-shadow: 0 2px 4px rgba(0,0,0,0.1);
         }
         .subtitle {
-            font-size: 0.9em;
-            color: #666;
-            font-weight: 500;
+            font-size: 1.1em;
+            color: #495057;
+            font-weight: 600;
             text-transform: uppercase;
-            letter-spacing: 2px;
+            letter-spacing: 3px;
             margin: 0;
-            opacity: 0.8;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
         }
         .form-group {
             margin-bottom: 20px;
@@ -167,35 +170,50 @@
         .remove-image:hover {
             background-color: #c82333;
         }
-        .example-prompts {
+        .model-info {
             background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
             border: 1px solid rgba(222, 226, 230, 0.5);
             border-radius: 15px;
-            padding: 25px;
+            padding: 35px;
             margin-bottom: 30px;
             box-shadow: 0 5px 15px rgba(0,0,0,0.05);
         }
-        .example-prompts h3 {
+        .model-info h3 {
+            color: #495057;
+            font-size: 20px;
+            font-weight: 700;
             margin-top: 0;
+            margin-bottom: 15px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+        .model-description {
             color: #495057;
             font-size: 16px;
+            line-height: 1.6;
+            margin-bottom: 20px;
         }
-        .prompt-example {
-            background: linear-gradient(135deg, #ffffff 0%, #f8f9fa 100%);
-            border: 1px solid rgba(206, 212, 218, 0.5);
-            border-radius: 10px;
-            padding: 15px 18px;
-            margin: 10px 0;
-            cursor: pointer;
+        .capabilities-list {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+        }
+        .capabilities-list li {
+            padding: 8px 0;
+            margin: 6px 0;
             font-size: 14px;
-            transition: all 0.3s ease;
-            box-shadow: 0 2px 5px rgba(0,0,0,0.05);
+            color: #495057;
+            border-bottom: 1px solid rgba(206, 212, 218, 0.2);
         }
-        .prompt-example:hover {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            transform: translateY(-2px);
-            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.3);
+        .capabilities-list li:last-child {
+            border-bottom: none;
+        }
+        .capabilities-list li:before {
+            content: "✨";
+            margin-right: 10px;
+            font-size: 16px;
         }
         .download-btn {
             background-color: #007bff;
@@ -235,19 +253,25 @@
     <div class="container">
         <div class="header">
             <img src="knarild-tech.png" alt="Knarild Tech Logo" class="logo">
-            <div class="main-title">🍌 KNARILDS</div>
-            <div class="subtitle">GOOGLE-NANO-BANANA-AI-BILDE-GENERATOR</div>
+            <div class="subtitle">GOOGLE NANO-BANANA AI-BILDEGENERATOR</div>
         </div>
         
-        <div class="example-prompts">
-            <h3>Eksempel bruksområder - Klikk for å prøve:</h3>
-            <div class="prompt-example" onclick="setPrompt('Lag et bilde av katten min som spiser en nano-banana på en fin restaurant under tvillingtegnet')">🐱 Person/dyr med nano-banana - Forstår sammenhenger og kombinerer ting som normalt ikke hører sammen</div>
-            <div class="prompt-example" onclick="setPrompt('Fjern bakgrunnen fra dette bildet og gjør den gjennomsiktig')">✂️ Bakgrunnsfjerning - Klipper ut hovedmotivet nøyaktig uten å ødelegge kantene</div>
-            <div class="prompt-example" onclick="setPrompt('Bland disse to bildene sammen sømløst')">🔄 Flerbilde-sammenslåing - Setter sammen bilder så det ser naturlig ut med riktig lys og perspektiv</div>
-            <div class="prompt-example" onclick="setPrompt('Endre lyset i dette bildet til gyllen time')">🌅 Lysjustering - Endrer stemning og lys i bildet uten at det ser kunstig ut</div>
-            <div class="prompt-example" onclick="setPrompt('Sett denne personen i et futuristisk bymiljø')">🏙️ Scene-endring - Flytter personer til nye steder uten å endre hvordan de ser ut</div>
-            <div class="prompt-example" onclick="setPrompt('Lag et fotorealistisk bilde av en drage som flyr over en middelalderborg ved solnedgang')">🐉 Fantasi-scene-generering - Lager fantasibilder som ser ekte ut ved å bruke kunnskap om hvordan ting ser ut</div>
-            <div class="prompt-example" onclick="setPrompt('Design en moderne logo for en tech startup som heter &quot;NanoTech&quot;, gjør den minimalistisk og profesjonell')">💼 Logo-design - Skjønner hva som ser profesjonelt ut og lager rene, moderne design</div>
+        <div class="model-info">
+            <h3>Gemini 2.5 Flash Image (Nano-Banana)</h3>
+            <p class="model-description">
+                Googles state-of-the-art bilde genererings- og redigeringsmodell. Gemini 2.5 Flash Image kombinerer lav latenstid og kostnadseffektivitet med kraftig kreativ kontroll og høy bildekvalitet. Modellen drar nytte av Geminis verdenskunskap for å skape og redigere bilder med dyp, semantisk forståelse.
+            </p>
+            <ul class="capabilities-list">
+                <li><strong>Kreativ bildegenerering:</strong> Kombinerer elementer på unike måter med naturlig språk</li>
+                <li><strong>Prompt-basert bilderedigering:</strong> Gjør målrettede transformasjoner og presise lokale endringer</li>
+                <li><strong>Multi-bilde fusjon:</strong> Blander flere inngangbilder til ett sammenhengende bilde</li>
+                <li><strong>Karakterkonsistens:</strong> Opprettholder samme karakter eller objekt på tvers av flere prompts</li>
+                <li><strong>Bakgrunnsfjerning og transparens:</strong> Presise endringer av eksisterende bilder</li>
+                <li><strong>Lys og atmosfære:</strong> Endrer stemning, belysning og visuelle effekter</li>
+                <li><strong>Scene-endring:</strong> Flytter objekter og karakterer til nye miljøer</li>
+                <li><strong>Realistisk fantasi:</strong> Skaper detaljerte, fotorealistiske fantasyscener</li>
+                <li><strong>Logo og grafisk design:</strong> Profesjonelle designelementer og merkevareressurser</li>
+            </ul>
         </div>
         
         <form id="generateForm">
@@ -257,10 +281,17 @@
             </div>
             
             <div class="form-group">
-                <label for="images">Inngangsbilder (valgfritt, maks 2):</label>
-                <input type="file" id="images" accept="image/*" multiple>
-                <small style="color: #666;">Du kan laste opp inntil 2 bilder som referanse eller inngang for generering.</small>
-                <div id="imagePreview" class="image-preview"></div>
+                <label for="image1">Første bilde (valgfritt):</label>
+                <input type="file" id="image1" accept="image/*">
+                <small style="color: #666;">Last opp første bilde som referanse eller inngang for generering.</small>
+                <div id="imagePreview1" class="image-preview"></div>
+            </div>
+            
+            <div class="form-group">
+                <label for="image2">Andre bilde (valgfritt):</label>
+                <input type="file" id="image2" accept="image/*">
+                <small style="color: #666;">Last opp andre bilde som referanse eller inngang for generering.</small>
+                <div id="imagePreview2" class="image-preview"></div>
             </div>
             
             <button type="submit">Generer bilde</button>
@@ -285,7 +316,8 @@
             const resultDiv = document.getElementById('result');
             const loadingDiv = document.getElementById('loading');
             
-            if (selectedFiles.length > 2) {
+            const fileCount = (selectedFiles.image1 ? 1 : 0) + (selectedFiles.image2 ? 1 : 0);
+            if (fileCount > 2) {
                 alert('Maksimalt 2 bilder tillatt');
                 return;
             }
@@ -296,12 +328,15 @@
             const formData = new FormData();
             formData.append('prompt', prompt);
             
-            selectedFiles.forEach(file => {
-                formData.append('images', file);
-            });
+            if (selectedFiles.image1) {
+                formData.append('images', selectedFiles.image1);
+            }
+            if (selectedFiles.image2) {
+                formData.append('images', selectedFiles.image2);
+            }
             
             try {
-                console.log('Sending request with', selectedFiles.length, 'files');
+                console.log('Sending request with', fileCount, 'files');
                 
                 const response = await fetch('/generate', {
                     method: 'POST',
@@ -354,22 +389,21 @@
             }
         });
         
-        function setPrompt(text) {
-            document.getElementById('prompt').value = text;
+        
+        let selectedFiles = {image1: null, image2: null};
+        
+        function removeImage(imageId) {
+            selectedFiles[imageId] = null;
+            document.getElementById(imageId).value = '';
+            updatePreview(imageId);
         }
         
-        let selectedFiles = [];
-        
-        function removeImage(index) {
-            selectedFiles.splice(index, 1);
-            updatePreview();
-        }
-        
-        function updatePreview() {
-            const previewDiv = document.getElementById('imagePreview');
+        function updatePreview(imageId) {
+            const previewDiv = document.getElementById('imagePreview' + imageId.slice(-1));
             previewDiv.innerHTML = '';
             
-            selectedFiles.forEach((file, index) => {
+            const file = selectedFiles[imageId];
+            if (file) {
                 const reader = new FileReader();
                 
                 reader.onload = function(e) {
@@ -379,14 +413,14 @@
                     const img = document.createElement('img');
                     img.src = e.target.result;
                     img.className = 'preview-image';
-                    img.alt = `Forhåndsvisning ${index + 1}`;
+                    img.alt = `Forhåndsvisning ${imageId}`;
                     
                     const removeBtn = document.createElement('button');
                     removeBtn.className = 'remove-image';
                     removeBtn.innerHTML = '×';
                     removeBtn.onclick = function(event) { 
                         event.preventDefault();
-                        removeImage(index); 
+                        removeImage(imageId); 
                     };
                     removeBtn.title = 'Fjern bilde';
                     
@@ -396,20 +430,19 @@
                 };
                 
                 reader.readAsDataURL(file);
-            });
+            }
         }
         
-        document.getElementById('images').addEventListener('change', function(e) {
-            const files = Array.from(e.target.files);
-            
-            if (files.length > 2) {
-                alert('Maksimalt 2 bilder tillatt. De første 2 bildene ble valgt.');
-                selectedFiles = files.slice(0, 2);
-            } else {
-                selectedFiles = files;
-            }
-            
-            updatePreview();
+        document.getElementById('image1').addEventListener('change', function(e) {
+            const file = e.target.files[0];
+            selectedFiles.image1 = file || null;
+            updatePreview('image1');
+        });
+        
+        document.getElementById('image2').addEventListener('change', function(e) {
+            const file = e.target.files[0];
+            selectedFiles.image2 = file || null;
+            updatePreview('image2');
         });
     </script>
 </body>

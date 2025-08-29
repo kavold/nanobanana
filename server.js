@@ -105,6 +105,7 @@ app.post('/generate', upload.array('images', 2), async (req, res) => {
     const candidates = response.candidates;
     if (!candidates || candidates.length === 0) {
       console.log('No candidates in response');
+      console.log('Full response:', JSON.stringify(response, null, 2));
       
       // Special handling for multi-image requests
       if (req.files && req.files.length > 1) {
@@ -117,6 +118,12 @@ app.post('/generate', upload.array('images', 2), async (req, res) => {
     }
 
     const content = candidates[0].content;
+    if (!content || !content.parts) {
+      console.log('No content or parts in response');
+      console.log('Content:', content);
+      return res.status(500).json({ error: 'Tom respons fra modellen. Prøv en annen beskrivelse.' });
+    }
+    
     const parts_response = content.parts;
     
     console.log('Number of parts in response:', parts_response.length);
@@ -157,7 +164,9 @@ app.post('/generate', upload.array('images', 2), async (req, res) => {
     });
 
   } catch (error) {
-    console.error('Error:', error);
+    console.error('Detailed error:', error);
+    console.error('Error message:', error.message);
+    console.error('Error stack:', error.stack);
     
     if (req.files) {
       req.files.forEach(file => {
@@ -169,17 +178,19 @@ app.post('/generate', upload.array('images', 2), async (req, res) => {
     
     let errorMessage = 'Failed to generate content';
     
-    if (error.message.includes('API_KEY')) {
+    if (error.message.includes('API_KEY') || error.message.includes('INVALID_ARGUMENT')) {
       errorMessage = 'Invalid or missing Google API key. Please check your .env file.';
-    } else if (error.message.includes('quota')) {
+    } else if (error.message.includes('quota') || error.message.includes('QUOTA_EXCEEDED')) {
       errorMessage = 'API quota exceeded. Please try again later.';
-    } else if (error.message.includes('safety')) {
+    } else if (error.message.includes('safety') || error.message.includes('SAFETY')) {
       errorMessage = 'Content blocked by safety filters. Please try a different prompt.';
-    } else if (error.message.includes('network')) {
+    } else if (error.message.includes('network') || error.message.includes('NETWORK')) {
       errorMessage = 'Network error. Please check your internet connection.';
+    } else if (error.message.includes('UNSUPPORTED') || error.message.includes('not supported')) {
+      errorMessage = 'This type of request is not supported by the model yet.';
     }
     
-    res.status(500).json({ error: errorMessage });
+    res.status(500).json({ error: errorMessage + ' - ' + error.message });
   }
 });
 
