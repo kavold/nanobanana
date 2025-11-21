@@ -58,6 +58,12 @@ npm start
 
 Applikasjonen vil være tilgjengelig på `http://localhost:3002`
 
+### Passord i produksjon
+
+Når `NODE_ENV=production` settes er appen beskyttet med enkel Basic Auth for å hindre tilfeldig bruk:
+- Brukernavn: `nanobanana`
+- Passord: `påskefest`
+
 ## API-bruk
 
 ### Generer bilde endpoint

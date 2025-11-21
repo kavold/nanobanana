@@ -8,9 +8,42 @@ require('dotenv').config();
 
 const app = express();
 const PORT = process.env.PORT || 7654;
+const isProduction = process.env.NODE_ENV === 'production';
+const BASIC_AUTH_USER = 'nanobanana';
+const PROD_PASSWORD = 'påskefest';
 
 app.use(cors());
 app.use(express.json());
+
+// Simple production-only Basic Auth gate to avoid random abuse in prod
+app.use((req, res, next) => {
+  if (!isProduction) {
+    return next();
+  }
+
+  const authHeader = req.headers.authorization || '';
+  if (!authHeader.startsWith('Basic ')) {
+    res.set('WWW-Authenticate', 'Basic realm="Nano Banana"');
+    return res.status(401).send('Passord kreves i produksjon.');
+  }
+
+  const base64Credentials = authHeader.split(' ')[1];
+  let credentials;
+  try {
+    credentials = Buffer.from(base64Credentials, 'base64').toString('utf8');
+  } catch (err) {
+    res.set('WWW-Authenticate', 'Basic realm="Nano Banana"');
+    return res.status(401).send('Ugyldig autentisering.');
+  }
+
+  const [username, password] = credentials.split(':');
+  if (username !== BASIC_AUTH_USER || password !== PROD_PASSWORD) {
+    res.set('WWW-Authenticate', 'Basic realm="Nano Banana"');
+    return res.status(401).send('Feil brukernavn eller passord.');
+  }
+
+  return next();
+});
 app.use(express.static('public'));
 
 const upload = multer({
