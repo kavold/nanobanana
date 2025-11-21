@@ -7,7 +7,7 @@ const cors = require('cors');
 require('dotenv').config();
 
 const app = express();
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 7654;
 
 app.use(cors());
 app.use(express.json());
@@ -62,7 +62,7 @@ app.post('/generate', upload.array('images', 2), async (req, res) => {
     }
 
     const model = genAI.getGenerativeModel({ 
-      model: 'gemini-2.5-flash-image-preview',
+      model: 'gemini-3-pro-image-preview',
       generationConfig: {
         temperature: 0.7,
         maxOutputTokens: 2048,
