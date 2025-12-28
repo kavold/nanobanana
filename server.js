@@ -50,7 +50,7 @@ const upload = multer({
   dest: 'uploads/',
   limits: {
     fileSize: 50 * 1024 * 1024, // 50MB per file
-    files: 2
+    files: 14
   },
   fileFilter: (req, file, cb) => {
     if (file.mimetype.startsWith('image/')) {
@@ -79,28 +79,42 @@ app.use('/generate', (error, req, res, next) => {
       return res.status(400).json({ error: 'Filen er for stor. Maksimum størrelse er 50MB per fil.' });
     }
     if (error.code === 'LIMIT_FILE_COUNT') {
-      return res.status(400).json({ error: 'For mange filer. Maksimum 2 filer tillatt.' });
+      return res.status(400).json({ error: 'For mange filer. Maksimum 14 filer tillatt.' });
     }
     return res.status(400).json({ error: 'Fileopplastingsfeil: ' + error.message });
   }
   return res.status(500).json({ error: 'Server feil: ' + error.message });
 });
 
-app.post('/generate', upload.array('images', 2), async (req, res) => {
+app.post('/generate', upload.array('images', 14), async (req, res) => {
   try {
-    const { prompt } = req.body;
-    
+    const { prompt, aspectRatio = '16:9', resolution = '2K', useGoogleSearch } = req.body;
+
     if (!prompt) {
       return res.status(400).json({ error: 'Prompt is required' });
     }
 
-    const model = genAI.getGenerativeModel({ 
-      model: 'gemini-3-pro-image-preview',
-      generationConfig: {
-        temperature: 0.7,
-        maxOutputTokens: 2048,
+    const generationConfig = {
+      temperature: 0.7,
+      maxOutputTokens: 2048,
+      imageConfig: {
+        aspectRatio: aspectRatio,
+        imageSize: resolution
       }
-    });
+    };
+
+    // Build model config
+    const modelConfig = {
+      model: 'gemini-3-pro-image-preview',
+      generationConfig: generationConfig
+    };
+
+    // Add Google Search tool if enabled
+    if (useGoogleSearch === 'true') {
+      modelConfig.tools = [{"google_search": {}}];
+    }
+
+    const model = genAI.getGenerativeModel(modelConfig);
     
     // Build parts array based on input
     const parts = [];
@@ -110,8 +124,8 @@ app.post('/generate', upload.array('images', 2), async (req, res) => {
       // When we have images, be more explicit about what we want
       if (req.files.length === 1) {
         parts.push(`Based on this image: ${prompt}`);
-      } else if (req.files.length === 2) {
-        parts.push(`Using these two images: ${prompt}`);
+      } else {
+        parts.push(`Using these ${req.files.length} reference images: ${prompt}`);
       }
     } else {
       // No input images, generate from scratch

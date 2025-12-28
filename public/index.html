@@ -70,7 +70,7 @@
             font-weight: bold;
             color: #555;
         }
-        textarea, input[type="file"] {
+        textarea, input[type="file"], select {
             width: 100%;
             padding: 15px;
             border: 2px solid rgba(221, 221, 221, 0.5);
@@ -79,10 +79,37 @@
             transition: border-color 0.3s ease;
             background: rgba(255, 255, 255, 0.8);
         }
-        textarea:focus, input[type="file"]:focus {
+        textarea:focus, input[type="file"]:focus, select:focus {
             outline: none;
             border-color: #667eea;
             box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+        select {
+            cursor: pointer;
+        }
+        .checkbox-group {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 15px;
+            background: rgba(255, 255, 255, 0.8);
+            border: 2px solid rgba(221, 221, 221, 0.5);
+            border-radius: 10px;
+        }
+        .checkbox-group input[type="checkbox"] {
+            width: 20px;
+            height: 20px;
+            cursor: pointer;
+        }
+        .checkbox-group label {
+            margin-bottom: 0;
+            cursor: pointer;
+            flex: 1;
+        }
+        .checkbox-description {
+            font-size: 13px;
+            color: #666;
+            margin-top: 5px;
         }
         textarea {
             height: 100px;
@@ -259,7 +286,7 @@
         <div class="model-info">
             <h3>Gemini 3 Pro Image Preview (Nano Banana 2)</h3>
             <p class="model-description">
-                Her kan du teste Gemini 3 Pro Image Preview, gjerne omtalt som Nano Banana 2, som ble lansert i november 2025. Du kan bruke en ren tekstprompt, eller legge inn ett eller to bilder som utgangspunkt for genereringen.
+                Her kan du teste Gemini 3 Pro Image Preview, gjerne omtalt som Nano Banana 2, som ble lansert i november 2025. Du kan bruke en ren tekstprompt, eller legge inn inntil 14 referansebilder (inntil 6 bilder av objekter og inntil 5 bilder av mennesker) som utgangspunkt for genereringen.
             </p>
            
         </div>
@@ -269,19 +296,48 @@
                 <label for="prompt">Beskrivelse (påkrevd):</label>
                 <textarea id="prompt" placeholder="Beskriv bildet du vil generere..." required></textarea>
             </div>
-            
+
             <div class="form-group">
-                <label for="image1">Første bilde (valgfritt):</label>
-                <input type="file" id="image1" accept="image/*">
-                <small style="color: #666;">Last opp første bilde som referanse eller inngang for generering.</small>
-                <div id="imagePreview1" class="image-preview"></div>
+                <label for="aspectRatio">Aspektforhold:</label>
+                <select id="aspectRatio">
+                    <option value="1:1">1:1 (Kvadrat)</option>
+                    <option value="2:3">2:3 (Portrett)</option>
+                    <option value="3:2">3:2 (Landskap)</option>
+                    <option value="3:4">3:4 (Portrett)</option>
+                    <option value="4:3">4:3 (Landskap)</option>
+                    <option value="4:5">4:5 (Portrett)</option>
+                    <option value="5:4">5:4 (Landskap)</option>
+                    <option value="9:16">9:16 (Mobil portrett)</option>
+                    <option value="16:9" selected>16:9 (Widescreen)</option>
+                    <option value="21:9">21:9 (Ultrawide)</option>
+                </select>
             </div>
-            
+
             <div class="form-group">
-                <label for="image2">Andre bilde (valgfritt):</label>
-                <input type="file" id="image2" accept="image/*">
-                <small style="color: #666;">Last opp andre bilde som referanse eller inngang for generering.</small>
-                <div id="imagePreview2" class="image-preview"></div>
+                <label for="resolution">Oppløsning:</label>
+                <select id="resolution">
+                    <option value="1K">1K</option>
+                    <option value="2K" selected>2K</option>
+                    <option value="4K">4K</option>
+                </select>
+            </div>
+
+            <div class="form-group">
+                <div class="checkbox-group">
+                    <input type="checkbox" id="useGoogleSearch">
+                    <label for="useGoogleSearch">
+                        Bruk Google-søk for sanntidsdata og verifisering
+                        <div class="checkbox-description">Aktiverer modellen til å søke på nettet for oppdatert informasjon (f.eks. værdata, nyheter, aktuelle hendelser)</div>
+                    </label>
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label for="images">Referansebilder (valgfritt, maks 14):</label>
+                <input type="file" id="images" accept="image/*" multiple>
+                <small style="color: #666;">Last opp inntil 14 bilder som referanse. Inntil 6 bilder av objekter og inntil 5 bilder av mennesker for karakterkonsistens.</small>
+                <div id="imageCounter" style="margin-top: 10px; font-weight: bold; color: #667eea;"></div>
+                <div id="imagePreview" class="image-preview"></div>
             </div>
             
             <button type="submit">Generer bilde</button>
@@ -301,32 +357,34 @@
     <script>
         document.getElementById('generateForm').addEventListener('submit', async function(e) {
             e.preventDefault();
-            
+
             const prompt = document.getElementById('prompt').value;
+            const aspectRatio = document.getElementById('aspectRatio').value;
+            const resolution = document.getElementById('resolution').value;
+            const useGoogleSearch = document.getElementById('useGoogleSearch').checked;
             const resultDiv = document.getElementById('result');
             const loadingDiv = document.getElementById('loading');
-            
-            const fileCount = (selectedFiles.image1 ? 1 : 0) + (selectedFiles.image2 ? 1 : 0);
-            if (fileCount > 2) {
-                alert('Maksimalt 2 bilder tillatt');
+
+            if (selectedFiles.length > 14) {
+                alert('Maksimalt 14 bilder tillatt');
                 return;
             }
-            
+
             resultDiv.style.display = 'none';
             loadingDiv.style.display = 'block';
-            
+
             const formData = new FormData();
             formData.append('prompt', prompt);
-            
-            if (selectedFiles.image1) {
-                formData.append('images', selectedFiles.image1);
+            formData.append('aspectRatio', aspectRatio);
+            formData.append('resolution', resolution);
+            formData.append('useGoogleSearch', useGoogleSearch);
+
+            for (let i = 0; i < selectedFiles.length; i++) {
+                formData.append('images', selectedFiles[i]);
             }
-            if (selectedFiles.image2) {
-                formData.append('images', selectedFiles.image2);
-            }
-            
+
             try {
-                console.log('Sending request with', fileCount, 'files');
+                console.log('Sending request with', selectedFiles.length, 'files');
                 
                 const response = await fetch('/generate', {
                     method: 'POST',
@@ -362,6 +420,7 @@
                     if (data.image) {
                         html += `<p><strong>Generert bilde:</strong></p><img src="${data.image}" alt="Generert bilde" class="generated-image">`;
                         html += `<br><a href="${data.image}" download="knarilds-nano-banan-generert.png" class="download-btn">Last ned bilde</a>`;
+                        html += `<button type="button" class="download-btn" style="margin-left: 10px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);" onclick="addGeneratedImageAsReference('${data.image}')">Bruk som referanse</button>`;
                     }
                     
                     document.getElementById('resultText').innerHTML = html;
@@ -379,61 +438,109 @@
             }
         });
         
-        
-        let selectedFiles = {image1: null, image2: null};
-        
-        function removeImage(imageId) {
-            selectedFiles[imageId] = null;
-            document.getElementById(imageId).value = '';
-            updatePreview(imageId);
+
+        let selectedFiles = [];
+
+        function removeImage(index) {
+            selectedFiles.splice(index, 1);
+            updatePreview();
+            updateImageCounter();
         }
-        
-        function updatePreview(imageId) {
-            const previewDiv = document.getElementById('imagePreview' + imageId.slice(-1));
+
+        function updateImageCounter() {
+            const counter = document.getElementById('imageCounter');
+            if (selectedFiles.length > 0) {
+                counter.textContent = `${selectedFiles.length} av 14 bilder valgt`;
+            } else {
+                counter.textContent = '';
+            }
+        }
+
+        function updatePreview() {
+            const previewDiv = document.getElementById('imagePreview');
             previewDiv.innerHTML = '';
-            
-            const file = selectedFiles[imageId];
-            if (file) {
+
+            selectedFiles.forEach((file, index) => {
                 const reader = new FileReader();
-                
+
                 reader.onload = function(e) {
                     const container = document.createElement('div');
                     container.className = 'image-container';
-                    
+
                     const img = document.createElement('img');
                     img.src = e.target.result;
                     img.className = 'preview-image';
-                    img.alt = `Forhåndsvisning ${imageId}`;
-                    
+                    img.alt = `Forhåndsvisning ${index + 1}`;
+
                     const removeBtn = document.createElement('button');
                     removeBtn.className = 'remove-image';
                     removeBtn.innerHTML = '×';
-                    removeBtn.onclick = function(event) { 
+                    removeBtn.onclick = function(event) {
                         event.preventDefault();
-                        removeImage(imageId); 
+                        removeImage(index);
                     };
                     removeBtn.title = 'Fjern bilde';
-                    
+
                     container.appendChild(img);
                     container.appendChild(removeBtn);
                     previewDiv.appendChild(container);
                 };
-                
+
                 reader.readAsDataURL(file);
+            });
+        }
+
+        document.getElementById('images').addEventListener('change', function(e) {
+            const files = Array.from(e.target.files);
+
+            // Check if adding these files would exceed the limit
+            if (selectedFiles.length + files.length > 14) {
+                alert(`Du kan kun laste opp ${14 - selectedFiles.length} flere bilder. Maksimalt 14 bilder tillatt.`);
+                // Only add files up to the limit
+                const availableSlots = 14 - selectedFiles.length;
+                selectedFiles.push(...files.slice(0, availableSlots));
+            } else {
+                selectedFiles.push(...files);
+            }
+
+            updatePreview();
+            updateImageCounter();
+
+            // Reset the file input so the same files can be added again if needed
+            e.target.value = '';
+        });
+
+        async function addGeneratedImageAsReference(imageUrl) {
+            if (selectedFiles.length >= 14) {
+                alert('Du har allerede 14 bilder. Fjern noen bilder før du legger til flere.');
+                return;
+            }
+
+            try {
+                // Fetch the generated image
+                const response = await fetch(imageUrl);
+                const blob = await response.blob();
+
+                // Create a File object from the blob
+                const filename = imageUrl.split('/').pop();
+                const file = new File([blob], filename, { type: blob.type });
+
+                // Add to selectedFiles
+                selectedFiles.push(file);
+
+                // Update UI
+                updatePreview();
+                updateImageCounter();
+
+                // Scroll to the image preview section
+                document.getElementById('imagePreview').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+
+                alert('Bildet er lagt til som referanse!');
+            } catch (error) {
+                console.error('Error adding generated image:', error);
+                alert('Kunne ikke legge til bildet som referanse. Prøv igjen.');
             }
         }
-        
-        document.getElementById('image1').addEventListener('change', function(e) {
-            const file = e.target.files[0];
-            selectedFiles.image1 = file || null;
-            updatePreview('image1');
-        });
-        
-        document.getElementById('image2').addEventListener('change', function(e) {
-            const file = e.target.files[0];
-            selectedFiles.image2 = file || null;
-            updatePreview('image2');
-        });
     </script>
 </body>
 </html>
