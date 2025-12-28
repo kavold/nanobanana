@@ -180,7 +180,7 @@ app.post('/generate', upload.array('images', 14), async (req, res) => {
 
     for (const part of parts_response) {
       console.log('Processing part:', part.text ? 'text' : part.inlineData ? 'image' : 'unknown');
-      
+
       if (part.text) {
         generatedText += part.text;
       } else if (part.inlineData) {
@@ -188,15 +188,26 @@ app.post('/generate', upload.array('images', 14), async (req, res) => {
         const imageBuffer = Buffer.from(part.inlineData.data, 'base64');
         const filename = `generated_${Date.now()}.png`;
         const filepath = path.join(__dirname, 'public', 'generated', filename);
-        
+
         if (!fs.existsSync(path.join(__dirname, 'public', 'generated'))) {
           fs.mkdirSync(path.join(__dirname, 'public', 'generated'), { recursive: true });
         }
-        
+
         fs.writeFileSync(filepath, imageBuffer);
         generatedImage = `/generated/${filename}`;
         console.log('Image saved:', filename);
       }
+    }
+
+    // Extract grounding metadata if available (from Google Search)
+    let groundingMetadata = null;
+    if (candidates[0].groundingMetadata) {
+      console.log('Found grounding metadata');
+      groundingMetadata = {
+        searchEntryPoint: candidates[0].groundingMetadata.searchEntryPoint || null,
+        groundingChunks: candidates[0].groundingMetadata.groundingChunks || null,
+        webSearchQueries: candidates[0].groundingMetadata.webSearchQueries || null
+      };
     }
 
     if (req.files) {
@@ -207,7 +218,8 @@ app.post('/generate', upload.array('images', 14), async (req, res) => {
 
     res.json({
       text: generatedText || null,
-      image: generatedImage
+      image: generatedImage,
+      groundingMetadata: groundingMetadata
     });
 
   } catch (error) {

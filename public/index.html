@@ -14,13 +14,19 @@
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             min-height: 100vh;
         }
-        .container {
+        .app-container {
             background: rgba(255, 255, 255, 0.95);
             backdrop-filter: blur(10px);
             padding: 40px;
             border-radius: 20px;
             box-shadow: 0 20px 40px rgba(0,0,0,0.1);
             border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+        form {
+            display: block;
+            width: 100%;
+            float: none;
+            clear: both;
         }
         .header {
             text-align: center;
@@ -142,6 +148,36 @@
             padding: 20px;
             border-radius: 5px;
             display: none;
+            width: 100%;
+            float: none;
+            clear: both;
+        }
+                #resultText {
+                    display: block !important;
+                    width: 100% !important;
+                    overflow: hidden;
+                }
+                #resultText p,
+                #resultText img,
+                #resultText div,
+                #resultText a {
+                    display: block !important;
+                    width: 100% !important;
+                    max-width: 100% !important;
+                    float: none !important;
+                    clear: both !important;
+                    margin-left: 0 !important;
+                    margin-right: 0 !important;
+                    box-sizing: border-box !important;
+                }
+                #resultText a.download-btn {
+                    display: inline-block !important;
+                    width: auto !important;
+                }
+        #resultImage {
+            display: block;
+            width: 100%;
+            clear: both;
         }
         .success {
             background-color: #d4edda;
@@ -154,10 +190,21 @@
             color: #721c24;
         }
         .generated-image {
+            display: block;
             max-width: 100%;
+            width: 100%;
             height: auto;
             border-radius: 5px;
             margin-top: 10px;
+            margin-bottom: 10px;
+            object-fit: contain;
+        }
+        .image-actions {
+            display: block !important;
+            width: 100% !important;
+            margin-bottom: 15px;
+            float: none !important;
+            clear: both !important;
         }
         .image-preview {
             display: flex;
@@ -256,6 +303,75 @@
         .download-btn:hover {
             background-color: #0056b3;
         }
+        .grounding-metadata {
+            display: block !important;
+            width: 100% !important;
+            margin-top: 20px;
+            padding: 20px;
+            background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+            border-radius: 10px;
+            border: 1px solid rgba(222, 226, 230, 0.5);
+            clear: both !important;
+            box-sizing: border-box;
+            float: none !important;
+            position: relative;
+            overflow: hidden; /* Added to contain floats */
+        }
+        @media (max-width: 768px) {
+            .app-container {
+                padding: 20px;
+            }
+            .grounding-metadata {
+                padding: 15px;
+                margin-top: 15px;
+            }
+            .grounding-chunks li {
+                padding: 8px;
+                font-size: 14px;
+                word-break: break-word;
+            }
+            .main-title {
+                font-size: 2em;
+            }
+            .logo {
+                width: 80px;
+                height: 80px;
+            }
+        }
+        .grounding-metadata h4 {
+            color: #495057;
+            margin-top: 0;
+            margin-bottom: 15px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+        .grounding-chunks {
+            list-style: none;
+            padding: 0;
+        }
+        .grounding-chunks li {
+            padding: 10px;
+            margin: 8px 0;
+            background: white;
+            border-radius: 5px;
+            border-left: 3px solid #667eea;
+        }
+        .grounding-chunks a {
+            color: #667eea;
+            text-decoration: none;
+            font-weight: 600;
+        }
+        .grounding-chunks a:hover {
+            text-decoration: underline;
+        }
+        .search-entry-point {
+            margin-top: 15px;
+            padding: 15px;
+            background: white;
+            border-radius: 5px;
+        }
         .loading {
             text-align: center;
             padding: 20px;
@@ -277,7 +393,7 @@
     </style>
 </head>
 <body>
-    <div class="container">
+    <div class="app-container">
         <div class="header">
             <img src="knarild-tech.png" alt="Knarild Tech Logo" class="logo">
             <div class="subtitle">Nano Banana 2 - bildegenerator</div>
@@ -412,17 +528,54 @@
                 if (response.ok) {
                     resultDiv.className = 'result success';
                     let html = '';
-                    
+
                     if (data.text) {
                         html += `<p><strong>Generert tekst:</strong></p><p>${data.text}</p>`;
                     }
-                    
+
                     if (data.image) {
-                        html += `<p><strong>Generert bilde:</strong></p><img src="${data.image}" alt="Generert bilde" class="generated-image">`;
-                        html += `<br><a href="${data.image}" download="knarilds-nano-banan-generert.png" class="download-btn">Last ned bilde</a>`;
+                        html += `<div class="image-result-container">`;
+                        html += `<p><strong>Generert bilde:</strong></p>`;
+                        html += `<img src="${data.image}" alt="Generert bilde" class="generated-image">`;
+                        html += `<div class="image-actions">`;
+                        html += `<a href="${data.image}" download="knarilds-nano-banan-generert.png" class="download-btn">Last ned bilde</a>`;
                         html += `<button type="button" class="download-btn" style="margin-left: 10px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);" onclick="addGeneratedImageAsReference('${data.image}')">Bruk som referanse</button>`;
+                        html += `</div>`;
+                        html += `</div>`;
                     }
-                    
+
+                    // Display grounding metadata if available
+                    if (data.groundingMetadata) {
+                        html += `<div class="grounding-metadata">`;
+                        html += `<h4>🔍 Google-søk informasjon</h4>`;
+
+                        if (data.groundingMetadata.webSearchQueries && data.groundingMetadata.webSearchQueries.length > 0) {
+                            html += `<p><strong>Søkeord brukt:</strong> ${data.groundingMetadata.webSearchQueries.join(', ')}</p>`;
+                        }
+
+                        if (data.groundingMetadata.groundingChunks && data.groundingMetadata.groundingChunks.length > 0) {
+                            html += `<p><strong>Kilder brukt for å generere bildet:</strong></p>`;
+                            html += `<ul class="grounding-chunks">`;
+                            data.groundingMetadata.groundingChunks.forEach((chunk, index) => {
+                                if (chunk.web) {
+                                    html += `<li>`;
+                                    html += `<a href="${chunk.web.uri}" target="_blank" rel="noopener noreferrer">${chunk.web.title || chunk.web.uri}</a>`;
+                                    if (chunk.web.uri) {
+                                        html += `<br><small style="color: #666;">${chunk.web.uri}</small>`;
+                                    }
+                                    html += `</li>`;
+                                }
+                            });
+                            html += `</ul>`;
+                        }
+
+                                                                if (data.groundingMetadata.searchEntryPoint && data.groundingMetadata.searchEntryPoint.renderedContent) {
+                                                                    html += `<div class="search-entry-point">`;
+                                                                    html += data.groundingMetadata.searchEntryPoint.renderedContent;
+                                                                    html += `</div>`;
+                                                                }                        html += `</div>`;
+                    }
+
                     document.getElementById('resultText').innerHTML = html;
                 } else {
                     resultDiv.className = 'result error';
