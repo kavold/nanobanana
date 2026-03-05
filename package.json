@@ -1,7 +1,7 @@
 {
-  "name": "nano-banana",
+  "name": "image-studio",
   "version": "1.0.0",
-  "description": "Image generation using Google Gemini nano-banana model",
+  "description": "Image generation and editing with Google Gemini",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",

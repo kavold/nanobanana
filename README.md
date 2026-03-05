@@ -1,139 +1,80 @@
-# 🍌 Knarilds Nano Banan - Gemini 2.5 Flash AI-bildegenerator
+# Image Studio - Gemini AI-bildegenerator
 
-En Node.js Express-applikasjon som bruker Googles Gemini 2.5 Flash Image (nano-banana) modell for AI-bildegenerering og redigering.
+Node.js/Express-app for bildegenerering og bilderedigering med Gemini.
 
 ## Funksjoner
 
-- **Tekst-til-bilde generering**: Lag bilder fra tekstbeskrivelser
-- **Flerbilde-sammenslåing**: Bland inntil 2 inngangsbilder sammen
-- **Bilderedigering**: Modifiser eksisterende bilder med naturlige språk-instruksjoner
-- **Karakterkonsistens**: Behold karakterutseende på tvers av ulike instruksjoner
-- **Sanntids forhåndsvisning**: Se opplastede bilder før behandling
-- **Last ned genererte bilder**: Lagre resultater direkte til enheten din
+- Tekst-til-bilde generering
+- Redigering med opptil 14 referansebilder
+- Valg av aspektforhold og opplosning
+- Valgfri Google-sok-grounding for oppdatert kontekst
+- Nedlasting av genererte bilder fra webgrensesnittet
 
-## Bruksområder
+## Oppsett lokalt
 
-Basert på Gemini 2.5 Flash Image kapabiliteter:
-
-- **Bakgrunnsfjerning**: Fjern eller endre bildebakgrunner
-- **Scene-endringer**: Plasser motiver i forskjellige miljøer  
-- **Lysjusteringer**: Modifiser belysning og atmosfære
-- **Flerbilde-sammenslåing**: Bland flere bilder sømløst sammen
-- **Logo-design**: Lag profesjonelle logoer og grafiske elementer
-- **Fantasi-kunst**: Generer kreativt og kunstnerisk innhold
-
-## Oppsett
-
-1. **Installer avhengigheter**:
+1. Installer avhengigheter:
    ```bash
    npm install
    ```
-
-2. **Sett opp miljøvariabler**:
+2. Kopier miljovariabler:
    ```bash
    cp .env.example .env
    ```
-   Rediger `.env` og legg til din Google API-nøkkel:
+3. Sett verdier i `.env`:
+   ```env
+   GOOGLE_API_KEY=din_google_api_nokkel
+   PORT=3001
+   NODE_ENV=development
+   USERNAME=valgfritt_i_dev
+   PASSWORD=valgfritt_i_dev
+   BASIC_AUTH_USERNAME=
+   BASIC_AUTH_PASSWORD=
    ```
-   GOOGLE_API_KEY=din_google_api_nokkel_her
-   PORT=3002
-   ```
 
-3. **Få Google API-nøkkel**:
-   - Besøk [Google AI Studio](https://aistudio.google.com/)
-   - Opprett en ny API-nøkkel for Gemini-modeller
-   - Sørg for at du har tilgang til `gemini-2.5-flash-image-preview`
+## Kjoring
 
-## Kjøre applikasjonen
+- Utvikling:
+  ```bash
+  npm run dev
+  ```
+- Produksjon:
+  ```bash
+  npm start
+  ```
 
-**Utviklingsmodus** (med automatisk omstart):
-```bash
-npm run dev
-```
+## Produksjonsautentisering
 
-**Produksjonsmodus**:
-```bash
-npm start
-```
+Nar `NODE_ENV=production` er satt, kreves Basic Auth for alle endepunkter unntatt `/health`.
 
-Applikasjonen vil være tilgjengelig på `http://localhost:3002`
+- Brukernavn hentes fra `BASIC_AUTH_USERNAME` eller `USERNAME`
+- Passord hentes fra `BASIC_AUTH_PASSWORD` eller `PASSWORD`
 
-### Passord i produksjon
+Appen starter ikke i produksjon uten disse to variablene.
 
-Når `NODE_ENV=production` settes er appen beskyttet med enkel Basic Auth for å hindre tilfeldig bruk:
-- Brukernavn: `nanobanana`
-- Passord: `påskefest`
+## API
 
-## API-bruk
+- `POST /generate`
+  - `multipart/form-data`
+  - Felter:
+    - `prompt` (pakrevd)
+    - `images` (valgfritt, opptil 14 filer)
+    - `aspectRatio` (valgfritt, standard `16:9`)
+    - `resolution` (valgfritt, standard `2K`)
+    - `useGoogleSearch` (`true`/`false`)
+- `GET /health`
+  - Returnerer `200` og `{ "status": "ok" }`
 
-### Generer bilde endpoint
+## Railway-klart oppsett
 
-**POST** `/generate`
+Appen er klar for Railway med standard Node deploy:
 
-**Content-Type**: `multipart/form-data`
+- `npm install` ved build
+- `npm start` ved runtime
+- `PORT` leses fra miljoet
+- Sett disse variablene i Railway:
+  - `GOOGLE_API_KEY`
+  - `NODE_ENV=production`
+  - `BASIC_AUTH_USERNAME` (anbefalt) eller `USERNAME`
+  - `BASIC_AUTH_PASSWORD` (anbefalt) eller `PASSWORD`
 
-**Parametere**:
-- `prompt` (påkrevd): Tekstbeskrivelse av hva du vil generere eller redigere
-- `images` (valgfritt): Opptil 2 bildefiler å bruke som inngang/referanse
-
-**Respons**:
-```json
-{
-  "text": "Generert tekstbeskrivelse (hvis noen)",
-  "image": "/generated/filnavn.png"
-}
-```
-
-## Eksempel instruksjoner
-
-- `"Lag et bilde av katten min som spiser en nano-banan på en fin restaurant"`
-- `"Fjern bakgrunnen fra dette bildet og gjør den gjennomsiktig"`
-- `"Bland disse to bildene sammen sømløst"`
-- `"Endre lyset i dette bildet til gyllen time"`
-- `"Sett denne karakteren i et futuristisk bymiljø"`
-
-## Modellinformasjon
-
-- **Modell**: `gemini-2.5-flash-image-preview`
-- **Prising**: $30.00 per 1 million output tokens (~$0.039 per bilde)
-- **Funksjoner**: Bildegenerering, redigering, flerbilde-sammenslåing, karakterkonsistens
-- **Vannmerking**: Alle genererte bilder inkluderer SynthID vannmerking
-
-## Filstruktur
-
-```
-nano-banana/
-├── server.js              # Express server og API endepunkter
-├── package.json           # Avhengigheter og skript
-├── public/
-│   ├── index.html         # Webgrensesnitt
-│   └── generated/         # Genererte bilder lagring
-├── uploads/               # Midlertidig opplastingslagring
-├── .env.example          # Miljøvariabler mal
-└── README.md             # Denne filen
-```
-
-## Feilhåndtering
-
-Applikasjonen gir spesifikke feilmeldinger for vanlige problemer:
-- Ugyldig eller manglende API-nøkkel
-- API-kvote overskredet
-- Innhold blokkert av sikkerhetsfiltre
-- Nettverkstilkoblingsproblemer
-
-## Sikkerhetsmerknad
-
-- Opplastede filer slettes automatisk etter behandling
-- Kun bildefiler aksepteres for opplasting
-- Filstørrelsesgrense: 10MB per fil
-- Maksimum 2 filer per forespørsel
-
-## Hva gjør Nano Banan bedre?
-
-- **Kontekstforståelse**: Forstår komplekse sammenhenger og kan kombinere elementer kreativt
-- **Presise endringer**: Kan gjøre målrettede modifikasjoner uten å påvirke resten av bildet
-- **Naturlig blanding**: Forstår perspektiv, lys og skygger for realistisk sammenslåing
-- **Atmosfærekontroll**: Kan justere stemning og følelser mens den bevarer bildets essens
-- **Karakterkonsistens**: Opprettholder samme utseende på figurer på tvers av ulike scenarier
-- **Verdenskunnskap**: Kombinerer faktakunnskap med kreativitet for realistiske resultater
-- **Designprinsipper**: Forstår komposisjon, typografi og visuelle hierarkier
+Merk: `uploads/` og `public/generated/` ligger pa lokal disk i containeren. Uten volume/storage vil filer kunne forsvinne ved restart/redeploy.

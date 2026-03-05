@@ -4,16 +4,34 @@ const { GoogleGenerativeAI } = require('@google/generative-ai');
 const fs = require('fs');
 const path = require('path');
 const cors = require('cors');
-require('dotenv').config();
+const dotenv = require('dotenv');
+const dotenvResult = dotenv.config();
+const envFromFile = dotenvResult.parsed || {};
 
 const app = express();
 const PORT = process.env.PORT || 7654;
 const isProduction = process.env.NODE_ENV === 'production';
-const BASIC_AUTH_USER = 'nanobanana';
-const PROD_PASSWORD = 'påskefest';
+const BASIC_AUTH_USER =
+  process.env.BASIC_AUTH_USERNAME ||
+  envFromFile.BASIC_AUTH_USERNAME ||
+  envFromFile.USERNAME ||
+  process.env.USERNAME;
+const BASIC_AUTH_PASSWORD =
+  process.env.BASIC_AUTH_PASSWORD ||
+  envFromFile.BASIC_AUTH_PASSWORD ||
+  envFromFile.PASSWORD ||
+  process.env.PASSWORD;
+
+if (isProduction && (!BASIC_AUTH_USER || !BASIC_AUTH_PASSWORD)) {
+  throw new Error('Set USERNAME/PASSWORD or BASIC_AUTH_USERNAME/BASIC_AUTH_PASSWORD when NODE_ENV=production');
+}
 
 app.use(cors());
 app.use(express.json());
+
+app.get('/health', (req, res) => {
+  res.status(200).json({ status: 'ok' });
+});
 
 // Simple production-only Basic Auth gate to avoid random abuse in prod
 app.use((req, res, next) => {
@@ -23,7 +41,7 @@ app.use((req, res, next) => {
 
   const authHeader = req.headers.authorization || '';
   if (!authHeader.startsWith('Basic ')) {
-    res.set('WWW-Authenticate', 'Basic realm="Nano Banana"');
+    res.set('WWW-Authenticate', 'Basic realm="Image Studio"');
     return res.status(401).send('Passord kreves i produksjon.');
   }
 
@@ -32,13 +50,13 @@ app.use((req, res, next) => {
   try {
     credentials = Buffer.from(base64Credentials, 'base64').toString('utf8');
   } catch (err) {
-    res.set('WWW-Authenticate', 'Basic realm="Nano Banana"');
+    res.set('WWW-Authenticate', 'Basic realm="Image Studio"');
     return res.status(401).send('Ugyldig autentisering.');
   }
 
   const [username, password] = credentials.split(':');
-  if (username !== BASIC_AUTH_USER || password !== PROD_PASSWORD) {
-    res.set('WWW-Authenticate', 'Basic realm="Nano Banana"');
+  if (username !== BASIC_AUTH_USER || password !== BASIC_AUTH_PASSWORD) {
+    res.set('WWW-Authenticate', 'Basic realm="Image Studio"');
     return res.status(401).send('Feil brukernavn eller passord.');
   }
 

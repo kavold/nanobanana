@@ -3,24 +3,24 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Knarilds Tech - Nano-Banana AI-bilde-generator</title>
-    <link rel="icon" type="image/x-icon" href="/favicon.ico">
+    <title>Image Studio - AI-bildegenerator</title>
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg">
     <style>
         body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            font-family: 'Avenir Next', 'Segoe UI', sans-serif;
             max-width: 900px;
             margin: 0 auto;
             padding: 20px;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            background: radial-gradient(circle at top, #dbeafe 0%, #e0f2fe 45%, #f8fafc 100%);
             min-height: 100vh;
         }
         .app-container {
-            background: rgba(255, 255, 255, 0.95);
+            background: rgba(255, 255, 255, 0.96);
             backdrop-filter: blur(10px);
             padding: 40px;
             border-radius: 20px;
-            box-shadow: 0 20px 40px rgba(0,0,0,0.1);
-            border: 1px solid rgba(255, 255, 255, 0.2);
+            box-shadow: 0 20px 40px rgba(15, 23, 42, 0.1);
+            border: 1px solid rgba(148, 163, 184, 0.2);
         }
         form {
             display: block;
@@ -33,36 +33,39 @@
             margin-bottom: 40px;
             padding: 20px 0;
         }
-        .logo {
+        .brand-mark {
             width: 120px;
             height: 120px;
             margin: 0 auto 20px auto;
-            display: block;
+            display: flex;
+            align-items: center;
+            justify-content: center;
             border-radius: 50%;
-            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
-            transition: transform 0.3s ease;
-        }
-        .logo:hover {
-            transform: scale(1.05);
+            background: linear-gradient(135deg, #0f766e 0%, #0369a1 100%);
+            color: #ffffff;
+            font-size: 36px;
+            font-weight: 700;
+            letter-spacing: 1px;
+            box-shadow: 0 10px 30px rgba(15, 23, 42, 0.2);
         }
         .main-title {
             font-size: 2.5em;
             font-weight: bold;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            background: linear-gradient(135deg, #0f766e 0%, #0f4c81 100%);
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
             background-clip: text;
             margin: 0 0 10px 0;
-            text-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            text-shadow: 0 2px 4px rgba(15, 23, 42, 0.08);
         }
         .subtitle {
             font-size: 1.1em;
-            color: #495057;
+            color: #334155;
             font-weight: 600;
             text-transform: uppercase;
-            letter-spacing: 3px;
+            letter-spacing: 2px;
             margin: 0;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            background: linear-gradient(135deg, #0f766e 0%, #0f4c81 100%);
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
             background-clip: text;
@@ -87,8 +90,8 @@
         }
         textarea:focus, input[type="file"]:focus, select:focus {
             outline: none;
-            border-color: #667eea;
-            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+            border-color: #0f766e;
+            box-shadow: 0 0 0 3px rgba(15, 118, 110, 0.12);
         }
         select {
             cursor: pointer;
@@ -123,7 +126,7 @@
             font-family: Arial, sans-serif;
         }
         button {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            background: linear-gradient(135deg, #0f766e 0%, #0f4c81 100%);
             color: white;
             padding: 15px 30px;
             border: none;
@@ -133,11 +136,11 @@
             font-weight: 600;
             width: 100%;
             transition: all 0.3s ease;
-            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.3);
+            box-shadow: 0 5px 15px rgba(15, 118, 110, 0.22);
         }
         button:hover {
             transform: translateY(-2px);
-            box-shadow: 0 10px 25px rgba(102, 126, 234, 0.4);
+            box-shadow: 0 10px 25px rgba(15, 118, 110, 0.32);
         }
         button:disabled {
             background-color: #cccccc;
@@ -258,7 +261,7 @@
             font-weight: 700;
             margin-top: 0;
             margin-bottom: 15px;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            background: linear-gradient(135deg, #0f766e 0%, #0f4c81 100%);
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
             background-clip: text;
@@ -290,7 +293,7 @@
             font-size: 16px;
         }
         .download-btn {
-            background-color: #007bff;
+            background-color: #0f4c81;
             color: white;
             border: none;
             padding: 8px 16px;
@@ -301,7 +304,7 @@
             display: inline-block;
         }
         .download-btn:hover {
-            background-color: #0056b3;
+            background-color: #0d3f6b;
         }
         .grounding-metadata {
             display: block !important;
@@ -333,16 +336,17 @@
             .main-title {
                 font-size: 2em;
             }
-            .logo {
+            .brand-mark {
                 width: 80px;
                 height: 80px;
+                font-size: 28px;
             }
         }
         .grounding-metadata h4 {
             color: #495057;
             margin-top: 0;
             margin-bottom: 15px;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            background: linear-gradient(135deg, #0f766e 0%, #0f4c81 100%);
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
             background-clip: text;
@@ -356,10 +360,10 @@
             margin: 8px 0;
             background: white;
             border-radius: 5px;
-            border-left: 3px solid #667eea;
+            border-left: 3px solid #0f766e;
         }
         .grounding-chunks a {
-            color: #667eea;
+            color: #0f4c81;
             text-decoration: none;
             font-weight: 600;
         }
@@ -379,7 +383,7 @@
         }
         .spinner {
             border: 4px solid #f3f3f3;
-            border-top: 4px solid #3498db;
+            border-top: 4px solid #0f4c81;
             border-radius: 50%;
             width: 40px;
             height: 40px;
@@ -395,14 +399,15 @@
 <body>
     <div class="app-container">
         <div class="header">
-            <img src="knarild-tech.png" alt="Knarild Tech Logo" class="logo">
-            <div class="subtitle">Nano Banana 2 - bildegenerator</div>
+            <div class="brand-mark" aria-hidden="true">IS</div>
+            <h1 class="main-title">Image Studio</h1>
+            <div class="subtitle">Gemini 3 Pro Image Preview</div>
         </div>
         
         <div class="model-info">
-            <h3>Gemini 3 Pro Image Preview (Nano Banana 2)</h3>
+            <h3>Profesjonell AI-bildegenerator</h3>
             <p class="model-description">
-                Her kan du teste Gemini 3 Pro Image Preview, gjerne omtalt som Nano Banana 2, som ble lansert i november 2025. Du kan bruke en ren tekstprompt, eller legge inn inntil 14 referansebilder (inntil 6 bilder av objekter og inntil 5 bilder av mennesker) som utgangspunkt for genereringen.
+                Generer bilder med Gemini 3 Pro Image Preview fra tekst, eller bruk opptil 14 referansebilder for redigering og komposisjon. Løsningen er laget for rask prototyping med støtte for forskjellige format og oppløsninger.
             </p>
            
         </div>
@@ -452,7 +457,7 @@
                 <label for="images">Referansebilder (valgfritt, maks 14):</label>
                 <input type="file" id="images" accept="image/*" multiple>
                 <small style="color: #666;">Last opp inntil 14 bilder som referanse. Inntil 6 bilder av objekter og inntil 5 bilder av mennesker for karakterkonsistens.</small>
-                <div id="imageCounter" style="margin-top: 10px; font-weight: bold; color: #667eea;"></div>
+                <div id="imageCounter" style="margin-top: 10px; font-weight: bold; color: #0f4c81;"></div>
                 <div id="imagePreview" class="image-preview"></div>
             </div>
             
@@ -471,6 +476,52 @@
     </div>
 
     <script>
+        function buildErrorMessage(response, parsedData, responseText) {
+            const status = response.status;
+            const contentType = (response.headers.get('content-type') || '').toLowerCase();
+            const trimmedResponse = (responseText || '').trim();
+            const serverError = parsedData && typeof parsedData.error === 'string'
+                ? parsedData.error.trim()
+                : '';
+            const looksLikeHtml = contentType.includes('text/html') || trimmedResponse.startsWith('<');
+
+            if (serverError) {
+                return `Feil fra server (${status}): ${serverError}`;
+            }
+
+            if (status === 503) {
+                return looksLikeHtml
+                    ? 'Tjenesten er midlertidig utilgjengelig (503). Serveren returnerte en feilmelding fra plattformen. Prøv igjen om 30-60 sekunder.'
+                    : 'Tjenesten er midlertidig utilgjengelig (503). Prøv igjen om 30-60 sekunder.';
+            }
+
+            if (status === 502 || status === 504) {
+                return `Oppstrøms serverfeil (${status}). Prøv igjen om litt.`;
+            }
+
+            if (status === 429) {
+                return 'For mange forespørsler akkurat nå. Vent litt og prøv igjen.';
+            }
+
+            if (status === 401 || status === 403) {
+                return `Du har ikke tilgang (${status}). Last siden på nytt og prøv igjen.`;
+            }
+
+            if (status === 413) {
+                return 'Opplastingen er for stor. Prøv færre eller mindre bilder.';
+            }
+
+            if (looksLikeHtml) {
+                return `Serveren returnerte ${status} og en HTML-feilside i stedet for JSON. Prøv igjen.`;
+            }
+
+            if (trimmedResponse) {
+                return `Serverfeil (${status}): ${trimmedResponse.substring(0, 200)}`;
+            }
+
+            return `Serverfeil (${status}).`;
+        }
+
         document.getElementById('generateForm').addEventListener('submit', async function(e) {
             e.preventDefault();
 
@@ -508,86 +559,104 @@
                 });
                 
                 console.log('Response status:', response.status);
-                console.log('Response headers:', response.headers.get('content-type'));
+                const contentType = response.headers.get('content-type');
+                console.log('Response headers:', contentType);
                 
                 const responseText = await response.text();
                 console.log('Raw response:', responseText);
                 
-                let data;
-                try {
-                    data = JSON.parse(responseText);
-                } catch (parseError) {
-                    console.error('JSON parse error:', parseError);
-                    console.error('Response was:', responseText.substring(0, 200));
-                    throw new Error('Serveren returnerte ugyldig data');
+                let data = null;
+                if (responseText) {
+                    try {
+                        data = JSON.parse(responseText);
+                    } catch (parseError) {
+                        console.error('JSON parse error:', parseError);
+                        console.error('Response was:', responseText.substring(0, 200));
+
+                        if (!response.ok) {
+                            throw new Error(buildErrorMessage(response, null, responseText));
+                        }
+
+                        throw new Error('Serveren returnerte ugyldig data (forventet JSON).');
+                    }
+                }
+
+                if (!response.ok) {
+                    throw new Error(buildErrorMessage(response, data, responseText));
+                }
+
+                if (!data || typeof data !== 'object') {
+                    throw new Error('Serveren returnerte tomt svar. Prøv igjen.');
                 }
                 
                 loadingDiv.style.display = 'none';
                 resultDiv.style.display = 'block';
                 
-                if (response.ok) {
-                    resultDiv.className = 'result success';
-                    let html = '';
+                resultDiv.className = 'result success';
+                let html = '';
 
-                    if (data.text) {
-                        html += `<p><strong>Generert tekst:</strong></p><p>${data.text}</p>`;
-                    }
-
-                    if (data.image) {
-                        html += `<div class="image-result-container">`;
-                        html += `<p><strong>Generert bilde:</strong></p>`;
-                        html += `<img src="${data.image}" alt="Generert bilde" class="generated-image">`;
-                        html += `<div class="image-actions">`;
-                        html += `<a href="${data.image}" download="knarilds-nano-banan-generert.png" class="download-btn">Last ned bilde</a>`;
-                        html += `<button type="button" class="download-btn" style="margin-left: 10px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);" onclick="addGeneratedImageAsReference('${data.image}')">Bruk som referanse</button>`;
-                        html += `</div>`;
-                        html += `</div>`;
-                    }
-
-                    // Display grounding metadata if available
-                    if (data.groundingMetadata) {
-                        html += `<div class="grounding-metadata">`;
-                        html += `<h4>🔍 Google-søk informasjon</h4>`;
-
-                        if (data.groundingMetadata.webSearchQueries && data.groundingMetadata.webSearchQueries.length > 0) {
-                            html += `<p><strong>Søkeord brukt:</strong> ${data.groundingMetadata.webSearchQueries.join(', ')}</p>`;
-                        }
-
-                        if (data.groundingMetadata.groundingChunks && data.groundingMetadata.groundingChunks.length > 0) {
-                            html += `<p><strong>Kilder brukt for å generere bildet:</strong></p>`;
-                            html += `<ul class="grounding-chunks">`;
-                            data.groundingMetadata.groundingChunks.forEach((chunk, index) => {
-                                if (chunk.web) {
-                                    html += `<li>`;
-                                    html += `<a href="${chunk.web.uri}" target="_blank" rel="noopener noreferrer">${chunk.web.title || chunk.web.uri}</a>`;
-                                    if (chunk.web.uri) {
-                                        html += `<br><small style="color: #666;">${chunk.web.uri}</small>`;
-                                    }
-                                    html += `</li>`;
-                                }
-                            });
-                            html += `</ul>`;
-                        }
-
-                                                                if (data.groundingMetadata.searchEntryPoint && data.groundingMetadata.searchEntryPoint.renderedContent) {
-                                                                    html += `<div class="search-entry-point">`;
-                                                                    html += data.groundingMetadata.searchEntryPoint.renderedContent;
-                                                                    html += `</div>`;
-                                                                }                        html += `</div>`;
-                    }
-
-                    document.getElementById('resultText').innerHTML = html;
-                } else {
-                    resultDiv.className = 'result error';
-                    document.getElementById('resultText').innerHTML = `<strong>Feil:</strong> ${data.error}`;
+                if (data.text) {
+                    html += `<p><strong>Generert tekst:</strong></p><p>${data.text}</p>`;
                 }
+
+                if (data.image) {
+                    html += `<div class="image-result-container">`;
+                    html += `<p><strong>Generert bilde:</strong></p>`;
+                    html += `<img src="${data.image}" alt="Generert bilde" class="generated-image">`;
+                    html += `<div class="image-actions">`;
+                    html += `<a href="${data.image}" download="generated-image.png" class="download-btn">Last ned bilde</a>`;
+                    html += `<button type="button" class="download-btn" style="margin-left: 10px; background: linear-gradient(135deg, #0f766e 0%, #0f4c81 100%);" onclick="addGeneratedImageAsReference('${data.image}')">Bruk som referanse</button>`;
+                    html += `</div>`;
+                    html += `</div>`;
+                }
+
+                // Display grounding metadata if available
+                if (data.groundingMetadata) {
+                    html += `<div class="grounding-metadata">`;
+                    html += `<h4>🔍 Google-søk informasjon</h4>`;
+
+                    if (data.groundingMetadata.webSearchQueries && data.groundingMetadata.webSearchQueries.length > 0) {
+                        html += `<p><strong>Søkeord brukt:</strong> ${data.groundingMetadata.webSearchQueries.join(', ')}</p>`;
+                    }
+
+                    if (data.groundingMetadata.groundingChunks && data.groundingMetadata.groundingChunks.length > 0) {
+                        html += `<p><strong>Kilder brukt for å generere bildet:</strong></p>`;
+                        html += `<ul class="grounding-chunks">`;
+                        data.groundingMetadata.groundingChunks.forEach((chunk, index) => {
+                            if (chunk.web) {
+                                html += `<li>`;
+                                html += `<a href="${chunk.web.uri}" target="_blank" rel="noopener noreferrer">${chunk.web.title || chunk.web.uri}</a>`;
+                                if (chunk.web.uri) {
+                                    html += `<br><small style="color: #666;">${chunk.web.uri}</small>`;
+                                }
+                                html += `</li>`;
+                            }
+                        });
+                        html += `</ul>`;
+                    }
+
+                    if (data.groundingMetadata.searchEntryPoint && data.groundingMetadata.searchEntryPoint.renderedContent) {
+                        html += `<div class="search-entry-point">`;
+                        html += data.groundingMetadata.searchEntryPoint.renderedContent;
+                        html += `</div>`;
+                    }
+                    html += `</div>`;
+                }
+
+                document.getElementById('resultText').innerHTML = html;
                 
             } catch (error) {
                 console.error('Frontend error:', error);
                 loadingDiv.style.display = 'none';
                 resultDiv.style.display = 'block';
                 resultDiv.className = 'result error';
-                document.getElementById('resultText').innerHTML = `<strong>Feil:</strong> ${error.message}`;
+
+                let message = (error && error.message) ? error.message : 'Ukjent feil';
+                if (error && error.name === 'TypeError' && typeof error.message === 'string' && error.message.toLowerCase().includes('failed to fetch')) {
+                    message = 'Nettverksfeil. Klarte ikke kontakte serveren. Sjekk tilkobling og prøv igjen.';
+                }
+
+                document.getElementById('resultText').innerHTML = `<strong>Feil:</strong> ${message}`;
             }
         });
         
