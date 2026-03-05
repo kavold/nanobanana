@@ -11,32 +11,51 @@ const envFromFile = dotenvResult.parsed || {};
 
 const app = express();
 const PORT = process.env.PORT || 7654;
-const isProduction = process.env.NODE_ENV === 'production';
-const BASIC_AUTH_USER =
-  process.env.BASIC_AUTH_USERNAME ||
-  envFromFile.BASIC_AUTH_USERNAME ||
-  envFromFile.USERNAME ||
-  process.env.USERNAME;
-const BASIC_AUTH_PASSWORD =
-  process.env.BASIC_AUTH_PASSWORD ||
-  envFromFile.BASIC_AUTH_PASSWORD ||
-  envFromFile.PASSWORD ||
-  process.env.PASSWORD;
+function readEnv(name) {
+  const fromProcess = process.env[name];
+  if (typeof fromProcess === 'string' && fromProcess.trim() !== '') {
+    return fromProcess.trim();
+  }
+  const fromFile = envFromFile[name];
+  if (typeof fromFile === 'string' && fromFile.trim() !== '') {
+    return fromFile.trim();
+  }
+  return '';
+}
+
+function readEnvNumber(name, fallback) {
+  const value = readEnv(name);
+  if (!value) {
+    return fallback;
+  }
+  const parsed = Number.parseInt(value, 10);
+  if (Number.isNaN(parsed) || parsed < 0) {
+    return fallback;
+  }
+  return parsed;
+}
+
+const BASIC_AUTH_USER = readEnv('BASIC_AUTH_USERNAME') || readEnv('USERNAME');
+const BASIC_AUTH_PASSWORD = readEnv('BASIC_AUTH_PASSWORD') || readEnv('PASSWORD');
 const authEnabled = Boolean(BASIC_AUTH_USER && BASIC_AUTH_PASSWORD);
 const AUTH_COOKIE_NAME = 'studio_auth';
 const AUTH_COOKIE_MAX_AGE_SECONDS = 60 * 60 * 12; // 12 hours
-const AUTH_SESSION_SECRET =
-  process.env.AUTH_SESSION_SECRET ||
-  envFromFile.AUTH_SESSION_SECRET ||
-  BASIC_AUTH_PASSWORD ||
-  'fallback-auth-secret';
+const AUTH_SESSION_SECRET = readEnv('AUTH_SESSION_SECRET') || BASIC_AUTH_PASSWORD || 'fallback-auth-secret';
+const ALLOW_UNAUTHENTICATED = readEnv('ALLOW_UNAUTHENTICATED').toLowerCase() === 'true';
+const LOGIN_WINDOW_MS = readEnvNumber('LOGIN_WINDOW_SECONDS', 10 * 60) * 1000;
+const LOGIN_MAX_ATTEMPTS_PER_IP = readEnvNumber('LOGIN_MAX_ATTEMPTS_PER_IP', 15);
+const GENERATE_WINDOW_MS = readEnvNumber('GENERATE_WINDOW_SECONDS', 10 * 60) * 1000;
+const GENERATE_MAX_REQUESTS_PER_IP = readEnvNumber('GENERATE_MAX_REQUESTS_PER_IP', 40);
+const GENERATE_MAX_REQUESTS_PER_USER = readEnvNumber('GENERATE_MAX_REQUESTS_PER_USER', 120);
+const GENERATE_MAX_PER_HOUR = readEnvNumber('GENERATE_MAX_PER_HOUR', 300);
+const GENERATE_MAX_PER_DAY = readEnvNumber('GENERATE_MAX_PER_DAY', 1200);
 const EXPECTED_AUTH_TOKEN = crypto
   .createHash('sha256')
   .update(`${BASIC_AUTH_USER}:${BASIC_AUTH_PASSWORD}:${AUTH_SESSION_SECRET}`)
   .digest('hex');
 
-if (isProduction && !authEnabled) {
-  throw new Error('Set USERNAME/PASSWORD or BASIC_AUTH_USERNAME/BASIC_AUTH_PASSWORD when NODE_ENV=production');
+if (!authEnabled && !ALLOW_UNAUTHENTICATED) {
+  throw new Error('Auth credentials are required. Set BASIC_AUTH_USERNAME/BASIC_AUTH_PASSWORD (or USERNAME/PASSWORD). Use ALLOW_UNAUTHENTICATED=true only for local testing.');
 }
 
 app.set('trust proxy', 1);
@@ -51,6 +70,146 @@ app.use((req, res, next) => {
 app.get('/health', (req, res) => {
   res.status(200).json({ status: 'ok' });
 });
+
+function getClientIp(req) {
+  const forwarded = req.headers['x-forwarded-for'];
+  if (typeof forwarded === 'string' && forwarded.trim() !== '') {
+    return forwarded.split(',')[0].trim();
+  }
+  return req.ip || req.socket.remoteAddress || 'unknown';
+}
+
+function createRateLimiter({ windowMs, max, keyFn, onLimit }) {
+  const eventsByKey = new Map();
+
+  return (req, res, next) => {
+    if (max <= 0 || windowMs <= 0) {
+      return next();
+    }
+
+    const key = keyFn(req);
+    const now = Date.now();
+    const windowStart = now - windowMs;
+    const events = eventsByKey.get(key) || [];
+
+    while (events.length > 0 && events[0] <= windowStart) {
+      events.shift();
+    }
+
+    if (events.length >= max) {
+      const retryAfterSeconds = Math.max(1, Math.ceil((events[0] + windowMs - now) / 1000));
+      res.setHeader('Retry-After', String(retryAfterSeconds));
+      return onLimit(req, res, retryAfterSeconds);
+    }
+
+    events.push(now);
+    eventsByKey.set(key, events);
+
+    if (eventsByKey.size > 5000) {
+      for (const [storedKey, storedEvents] of eventsByKey.entries()) {
+        while (storedEvents.length > 0 && storedEvents[0] <= windowStart) {
+          storedEvents.shift();
+        }
+        if (storedEvents.length === 0) {
+          eventsByKey.delete(storedKey);
+        }
+      }
+    }
+
+    return next();
+  };
+}
+
+const loginRateLimiter = createRateLimiter({
+  windowMs: LOGIN_WINDOW_MS,
+  max: LOGIN_MAX_ATTEMPTS_PER_IP,
+  keyFn: (req) => getClientIp(req),
+  onLimit: (_req, res) => res.redirect('/login?error=rate')
+});
+
+const generateIpRateLimiter = createRateLimiter({
+  windowMs: GENERATE_WINDOW_MS,
+  max: GENERATE_MAX_REQUESTS_PER_IP,
+  keyFn: (req) => getClientIp(req),
+  onLimit: (_req, res, retryAfterSeconds) => res.status(429).json({
+    error: `For mange foresporsler fra denne IP-en. Prov igjen om ${retryAfterSeconds} sekunder.`
+  })
+});
+
+const generateUserRateLimiter = createRateLimiter({
+  windowMs: GENERATE_WINDOW_MS,
+  max: GENERATE_MAX_REQUESTS_PER_USER,
+  keyFn: () => (authEnabled ? `user:${BASIC_AUTH_USER}` : 'public'),
+  onLimit: (_req, res, retryAfterSeconds) => res.status(429).json({
+    error: `For mange foresporsler for denne brukeren. Prov igjen om ${retryAfterSeconds} sekunder.`
+  })
+});
+
+const generateBudgetState = {
+  hourKey: '',
+  hourCount: 0,
+  dayKey: '',
+  dayCount: 0
+};
+
+function getUtcHourKey(nowMs) {
+  return new Date(nowMs).toISOString().slice(0, 13);
+}
+
+function getUtcDayKey(nowMs) {
+  return new Date(nowMs).toISOString().slice(0, 10);
+}
+
+function secondsUntilNextUtcHour(nowMs) {
+  const nextHourMs = (Math.floor(nowMs / 3600000) + 1) * 3600000;
+  return Math.max(1, Math.ceil((nextHourMs - nowMs) / 1000));
+}
+
+function secondsUntilNextUtcDay(nowMs) {
+  const now = new Date(nowMs);
+  const nextDayMs = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1, 0, 0, 0, 0);
+  return Math.max(1, Math.ceil((nextDayMs - nowMs) / 1000));
+}
+
+function consumeGenerateBudget() {
+  if (GENERATE_MAX_PER_HOUR <= 0 && GENERATE_MAX_PER_DAY <= 0) {
+    return { allowed: true };
+  }
+
+  const nowMs = Date.now();
+  const hourKey = getUtcHourKey(nowMs);
+  const dayKey = getUtcDayKey(nowMs);
+
+  if (generateBudgetState.hourKey !== hourKey) {
+    generateBudgetState.hourKey = hourKey;
+    generateBudgetState.hourCount = 0;
+  }
+
+  if (generateBudgetState.dayKey !== dayKey) {
+    generateBudgetState.dayKey = dayKey;
+    generateBudgetState.dayCount = 0;
+  }
+
+  if (GENERATE_MAX_PER_HOUR > 0 && generateBudgetState.hourCount >= GENERATE_MAX_PER_HOUR) {
+    return {
+      allowed: false,
+      error: 'Timekvoten for bildegenerering er brukt opp. Prov igjen neste time.',
+      retryAfterSeconds: secondsUntilNextUtcHour(nowMs)
+    };
+  }
+
+  if (GENERATE_MAX_PER_DAY > 0 && generateBudgetState.dayCount >= GENERATE_MAX_PER_DAY) {
+    return {
+      allowed: false,
+      error: 'Dognkvoten for bildegenerering er brukt opp. Prov igjen i morgen.',
+      retryAfterSeconds: secondsUntilNextUtcDay(nowMs)
+    };
+  }
+
+  generateBudgetState.hourCount += 1;
+  generateBudgetState.dayCount += 1;
+  return { allowed: true };
+}
 
 function parseCookies(req) {
   const cookies = {};
@@ -70,7 +229,11 @@ function parseCookies(req) {
     }
     const key = trimmed.slice(0, separatorIndex);
     const value = trimmed.slice(separatorIndex + 1);
-    cookies[key] = decodeURIComponent(value);
+    try {
+      cookies[key] = decodeURIComponent(value);
+    } catch (_error) {
+      cookies[key] = value;
+    }
   });
 
   return cookies;
@@ -116,7 +279,7 @@ app.get('/login', (req, res) => {
   return res.sendFile(path.join(__dirname, 'public', 'login.html'));
 });
 
-app.post('/login', (req, res) => {
+app.post('/login', loginRateLimiter, (req, res) => {
   if (!authEnabled) {
     return res.redirect('/');
   }
@@ -201,12 +364,18 @@ app.use('/generate', (error, req, res, next) => {
   return res.status(500).json({ error: 'Server feil: ' + error.message });
 });
 
-app.post('/generate', upload.array('images', 14), async (req, res) => {
+app.post('/generate', generateIpRateLimiter, generateUserRateLimiter, upload.array('images', 14), async (req, res) => {
   try {
     const { prompt, aspectRatio = '16:9', resolution = '2K', useGoogleSearch } = req.body;
 
     if (!prompt) {
       return res.status(400).json({ error: 'Prompt is required' });
+    }
+
+    const budgetResult = consumeGenerateBudget();
+    if (!budgetResult.allowed) {
+      res.setHeader('Retry-After', String(budgetResult.retryAfterSeconds));
+      return res.status(429).json({ error: budgetResult.error });
     }
 
     const generationConfig = {

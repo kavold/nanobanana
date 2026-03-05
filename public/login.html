@@ -77,8 +77,14 @@
     </form>
     <script>
         const params = new URLSearchParams(window.location.search);
-        if (params.get('error') === '1') {
-            document.getElementById('error').classList.add('visible');
+        const errorElement = document.getElementById('error');
+        const errorCode = params.get('error');
+        if (errorCode === '1') {
+            errorElement.textContent = 'Feil brukernavn eller passord.';
+            errorElement.classList.add('visible');
+        } else if (errorCode === 'rate') {
+            errorElement.textContent = 'For mange innloggingsforsok. Vent litt og prov igjen.';
+            errorElement.classList.add('visible');
         }
     </script>
 </body>

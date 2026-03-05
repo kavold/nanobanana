@@ -30,6 +30,14 @@ Node.js/Express-app for bildegenerering og bilderedigering med Gemini.
    BASIC_AUTH_USERNAME=
    BASIC_AUTH_PASSWORD=
    AUTH_SESSION_SECRET=
+   ALLOW_UNAUTHENTICATED=false
+   LOGIN_WINDOW_SECONDS=600
+   LOGIN_MAX_ATTEMPTS_PER_IP=15
+   GENERATE_WINDOW_SECONDS=600
+   GENERATE_MAX_REQUESTS_PER_IP=40
+   GENERATE_MAX_REQUESTS_PER_USER=120
+   GENERATE_MAX_PER_HOUR=300
+   GENERATE_MAX_PER_DAY=1200
    ```
 
 ## Kjoring
@@ -45,12 +53,24 @@ Node.js/Express-app for bildegenerering og bilderedigering med Gemini.
 
 ## Autentisering
 
-Hvis brukernavn/passord er satt i miljoet, kreves innlogging via `/login` for alle endepunkter unntatt `/health`.
+Innlogging via `/login` kreves for alle endepunkter unntatt `/health`.
 
 - Brukernavn hentes fra `BASIC_AUTH_USERNAME` eller `USERNAME`
 - Passord hentes fra `BASIC_AUTH_PASSWORD` eller `PASSWORD`
 - Etter vellykket innlogging settes en `HttpOnly` cookie
 - `AUTH_SESSION_SECRET` er valgfri, men anbefalt i produksjon
+- Hvis credentials mangler stopper appen oppstart (fail-closed)
+- `ALLOW_UNAUTHENTICATED=true` kan brukes kun for lokal testing
+
+## Misbruksvern
+
+Appen har innebygde grenser for a redusere risiko for dyre API-kall:
+
+- Rate-limit pa `POST /login` per IP
+- Rate-limit pa `POST /generate` per IP og per bruker
+- Budsjettvern pa `POST /generate` per time og per dogn
+
+Alle grenser kan justeres via miljo-variabler i `.env`/Railway.
 
 ## API
 
@@ -77,5 +97,8 @@ Appen er klar for Railway med standard Node deploy:
   - `BASIC_AUTH_USERNAME` (anbefalt) eller `USERNAME`
   - `BASIC_AUTH_PASSWORD` (anbefalt) eller `PASSWORD`
   - `AUTH_SESSION_SECRET` (anbefalt)
+  - `LOGIN_WINDOW_SECONDS` og `LOGIN_MAX_ATTEMPTS_PER_IP` (valgfritt)
+  - `GENERATE_WINDOW_SECONDS`, `GENERATE_MAX_REQUESTS_PER_IP`, `GENERATE_MAX_REQUESTS_PER_USER` (valgfritt)
+  - `GENERATE_MAX_PER_HOUR` og `GENERATE_MAX_PER_DAY` (valgfritt)
 
 Merk: `uploads/` og `public/generated/` ligger pa lokal disk i containeren. Uten volume/storage vil filer kunne forsvinne ved restart/redeploy.
