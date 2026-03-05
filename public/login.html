@@ -85,6 +85,9 @@
         } else if (errorCode === 'rate') {
             errorElement.textContent = 'For mange innloggingsforsok. Vent litt og prov igjen.';
             errorElement.classList.add('visible');
+        } else if (errorCode === 'locked') {
+            errorElement.textContent = 'For mange feil passordforsok fra denne IP-en. Vent litt og prov igjen.';
+            errorElement.classList.add('visible');
         }
     </script>
 </body>

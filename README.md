@@ -33,6 +33,9 @@ Node.js/Express-app for bildegenerering og bilderedigering med Gemini.
    ALLOW_UNAUTHENTICATED=false
    LOGIN_WINDOW_SECONDS=600
    LOGIN_MAX_ATTEMPTS_PER_IP=15
+   LOGIN_FAILED_WINDOW_SECONDS=900
+   LOGIN_MAX_FAILED_ATTEMPTS_PER_IP=8
+   LOGIN_FAILED_LOCKOUT_SECONDS=1800
    GENERATE_WINDOW_SECONDS=600
    GENERATE_MAX_REQUESTS_PER_IP=40
    GENERATE_MAX_REQUESTS_PER_USER=120
@@ -67,6 +70,7 @@ Innlogging via `/login` kreves for alle endepunkter unntatt `/health`.
 Appen har innebygde grenser for a redusere risiko for dyre API-kall:
 
 - Rate-limit pa `POST /login` per IP
+- Egen teller for feilede innloggingsforsok per IP, med midlertidig lockout
 - Rate-limit pa `POST /generate` per IP og per bruker
 - Budsjettvern pa `POST /generate` per time og per dogn
 
@@ -98,6 +102,7 @@ Appen er klar for Railway med standard Node deploy:
   - `BASIC_AUTH_PASSWORD` (anbefalt) eller `PASSWORD`
   - `AUTH_SESSION_SECRET` (anbefalt)
   - `LOGIN_WINDOW_SECONDS` og `LOGIN_MAX_ATTEMPTS_PER_IP` (valgfritt)
+  - `LOGIN_FAILED_WINDOW_SECONDS`, `LOGIN_MAX_FAILED_ATTEMPTS_PER_IP`, `LOGIN_FAILED_LOCKOUT_SECONDS` (valgfritt)
   - `GENERATE_WINDOW_SECONDS`, `GENERATE_MAX_REQUESTS_PER_IP`, `GENERATE_MAX_REQUESTS_PER_USER` (valgfritt)
   - `GENERATE_MAX_PER_HOUR` og `GENERATE_MAX_PER_DAY` (valgfritt)
 

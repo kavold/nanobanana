@@ -44,6 +44,9 @@ const AUTH_SESSION_SECRET = readEnv('AUTH_SESSION_SECRET') || BASIC_AUTH_PASSWOR
 const ALLOW_UNAUTHENTICATED = readEnv('ALLOW_UNAUTHENTICATED').toLowerCase() === 'true';
 const LOGIN_WINDOW_MS = readEnvNumber('LOGIN_WINDOW_SECONDS', 10 * 60) * 1000;
 const LOGIN_MAX_ATTEMPTS_PER_IP = readEnvNumber('LOGIN_MAX_ATTEMPTS_PER_IP', 15);
+const LOGIN_FAILED_WINDOW_MS = readEnvNumber('LOGIN_FAILED_WINDOW_SECONDS', 15 * 60) * 1000;
+const LOGIN_MAX_FAILED_ATTEMPTS_PER_IP = readEnvNumber('LOGIN_MAX_FAILED_ATTEMPTS_PER_IP', 8);
+const LOGIN_FAILED_LOCKOUT_SECONDS = readEnvNumber('LOGIN_FAILED_LOCKOUT_SECONDS', 30 * 60);
 const GENERATE_WINDOW_MS = readEnvNumber('GENERATE_WINDOW_SECONDS', 10 * 60) * 1000;
 const GENERATE_MAX_REQUESTS_PER_IP = readEnvNumber('GENERATE_MAX_REQUESTS_PER_IP', 40);
 const GENERATE_MAX_REQUESTS_PER_USER = readEnvNumber('GENERATE_MAX_REQUESTS_PER_USER', 120);
@@ -151,6 +154,7 @@ const generateBudgetState = {
   dayKey: '',
   dayCount: 0
 };
+const failedLoginByIp = new Map();
 
 function getUtcHourKey(nowMs) {
   return new Date(nowMs).toISOString().slice(0, 13);
@@ -209,6 +213,88 @@ function consumeGenerateBudget() {
   generateBudgetState.hourCount += 1;
   generateBudgetState.dayCount += 1;
   return { allowed: true };
+}
+
+function getOrInitFailedLoginState(ip, nowMs) {
+  const existing = failedLoginByIp.get(ip);
+  if (!existing) {
+    const state = { firstFailedAtMs: nowMs, failedAttempts: 0, blockedUntilMs: 0 };
+    failedLoginByIp.set(ip, state);
+    return state;
+  }
+
+  if (existing.blockedUntilMs > 0 && existing.blockedUntilMs <= nowMs) {
+    existing.blockedUntilMs = 0;
+    existing.failedAttempts = 0;
+    existing.firstFailedAtMs = nowMs;
+  }
+
+  if (existing.failedAttempts > 0 && nowMs - existing.firstFailedAtMs > LOGIN_FAILED_WINDOW_MS) {
+    existing.failedAttempts = 0;
+    existing.firstFailedAtMs = nowMs;
+  }
+
+  return existing;
+}
+
+function cleanupFailedLoginState(nowMs) {
+  if (failedLoginByIp.size <= 5000) {
+    return;
+  }
+
+  const staleBefore = nowMs - LOGIN_FAILED_WINDOW_MS - (LOGIN_FAILED_LOCKOUT_SECONDS * 1000);
+  for (const [ip, state] of failedLoginByIp.entries()) {
+    if (state.blockedUntilMs > 0 && state.blockedUntilMs > nowMs) {
+      continue;
+    }
+    if (state.firstFailedAtMs < staleBefore) {
+      failedLoginByIp.delete(ip);
+    }
+  }
+}
+
+function getLoginLockoutSeconds(req) {
+  if (LOGIN_MAX_FAILED_ATTEMPTS_PER_IP <= 0 || LOGIN_FAILED_LOCKOUT_SECONDS <= 0) {
+    return 0;
+  }
+
+  const ip = getClientIp(req);
+  const nowMs = Date.now();
+  const state = getOrInitFailedLoginState(ip, nowMs);
+  if (state.blockedUntilMs <= nowMs) {
+    return 0;
+  }
+
+  return Math.max(1, Math.ceil((state.blockedUntilMs - nowMs) / 1000));
+}
+
+function recordFailedLoginAttempt(req) {
+  if (LOGIN_MAX_FAILED_ATTEMPTS_PER_IP <= 0 || LOGIN_FAILED_LOCKOUT_SECONDS <= 0) {
+    return 0;
+  }
+
+  const ip = getClientIp(req);
+  const nowMs = Date.now();
+  const state = getOrInitFailedLoginState(ip, nowMs);
+
+  if (state.failedAttempts === 0) {
+    state.firstFailedAtMs = nowMs;
+  }
+  state.failedAttempts += 1;
+
+  if (state.failedAttempts >= LOGIN_MAX_FAILED_ATTEMPTS_PER_IP) {
+    state.blockedUntilMs = nowMs + (LOGIN_FAILED_LOCKOUT_SECONDS * 1000);
+    state.failedAttempts = 0;
+    state.firstFailedAtMs = nowMs;
+  }
+
+  cleanupFailedLoginState(nowMs);
+  return getLoginLockoutSeconds(req);
+}
+
+function clearFailedLoginAttempts(req) {
+  const ip = getClientIp(req);
+  failedLoginByIp.delete(ip);
 }
 
 function parseCookies(req) {
@@ -284,10 +370,23 @@ app.post('/login', loginRateLimiter, (req, res) => {
     return res.redirect('/');
   }
 
+  const lockoutSeconds = getLoginLockoutSeconds(req);
+  if (lockoutSeconds > 0) {
+    res.setHeader('Retry-After', String(lockoutSeconds));
+    return res.redirect('/login?error=locked');
+  }
+
   const { username = '', password = '' } = req.body;
   if (username === BASIC_AUTH_USER && password === BASIC_AUTH_PASSWORD) {
+    clearFailedLoginAttempts(req);
     res.setHeader('Set-Cookie', authCookieHeader(req));
     return res.redirect('/');
+  }
+
+  const updatedLockoutSeconds = recordFailedLoginAttempt(req);
+  if (updatedLockoutSeconds > 0) {
+    res.setHeader('Retry-After', String(updatedLockoutSeconds));
+    return res.redirect('/login?error=locked');
   }
 
   return res.redirect('/login?error=1');
