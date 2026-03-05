@@ -4,6 +4,7 @@ const { GoogleGenerativeAI } = require('@google/generative-ai');
 const fs = require('fs');
 const path = require('path');
 const cors = require('cors');
+const crypto = require('crypto');
 const dotenv = require('dotenv');
 const dotenvResult = dotenv.config();
 const envFromFile = dotenvResult.parsed || {};
@@ -21,46 +22,138 @@ const BASIC_AUTH_PASSWORD =
   envFromFile.BASIC_AUTH_PASSWORD ||
   envFromFile.PASSWORD ||
   process.env.PASSWORD;
+const authEnabled = Boolean(BASIC_AUTH_USER && BASIC_AUTH_PASSWORD);
+const AUTH_COOKIE_NAME = 'studio_auth';
+const AUTH_COOKIE_MAX_AGE_SECONDS = 60 * 60 * 12; // 12 hours
+const AUTH_SESSION_SECRET =
+  process.env.AUTH_SESSION_SECRET ||
+  envFromFile.AUTH_SESSION_SECRET ||
+  BASIC_AUTH_PASSWORD ||
+  'fallback-auth-secret';
+const EXPECTED_AUTH_TOKEN = crypto
+  .createHash('sha256')
+  .update(`${BASIC_AUTH_USER}:${BASIC_AUTH_PASSWORD}:${AUTH_SESSION_SECRET}`)
+  .digest('hex');
 
-if (isProduction && (!BASIC_AUTH_USER || !BASIC_AUTH_PASSWORD)) {
+if (isProduction && !authEnabled) {
   throw new Error('Set USERNAME/PASSWORD or BASIC_AUTH_USERNAME/BASIC_AUTH_PASSWORD when NODE_ENV=production');
 }
 
+app.set('trust proxy', 1);
 app.use(cors());
 app.use(express.json());
+app.use(express.urlencoded({ extended: false }));
 
 app.get('/health', (req, res) => {
   res.status(200).json({ status: 'ok' });
 });
 
-// Simple production-only Basic Auth gate to avoid random abuse in prod
+function parseCookies(req) {
+  const cookies = {};
+  const header = req.headers.cookie || '';
+  if (!header) {
+    return cookies;
+  }
+
+  header.split(';').forEach((part) => {
+    const trimmed = part.trim();
+    if (!trimmed) {
+      return;
+    }
+    const separatorIndex = trimmed.indexOf('=');
+    if (separatorIndex === -1) {
+      return;
+    }
+    const key = trimmed.slice(0, separatorIndex);
+    const value = trimmed.slice(separatorIndex + 1);
+    cookies[key] = decodeURIComponent(value);
+  });
+
+  return cookies;
+}
+
+function hasValidAuthCookie(req) {
+  if (!authEnabled) {
+    return true;
+  }
+
+  const cookies = parseCookies(req);
+  const cookieValue = cookies[AUTH_COOKIE_NAME];
+  if (!cookieValue) {
+    return false;
+  }
+
+  const received = Buffer.from(cookieValue, 'utf8');
+  const expected = Buffer.from(EXPECTED_AUTH_TOKEN, 'utf8');
+  if (received.length !== expected.length) {
+    return false;
+  }
+  return crypto.timingSafeEqual(received, expected);
+}
+
+function authCookieHeader(req) {
+  const forwardedProto = req.headers['x-forwarded-proto'];
+  const isSecureRequest = req.secure || forwardedProto === 'https';
+  const securePart = isSecureRequest ? '; Secure' : '';
+  return `${AUTH_COOKIE_NAME}=${encodeURIComponent(EXPECTED_AUTH_TOKEN)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${AUTH_COOKIE_MAX_AGE_SECONDS}${securePart}`;
+}
+
+function clearAuthCookieHeader(req) {
+  const forwardedProto = req.headers['x-forwarded-proto'];
+  const isSecureRequest = req.secure || forwardedProto === 'https';
+  const securePart = isSecureRequest ? '; Secure' : '';
+  return `${AUTH_COOKIE_NAME}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0${securePart}`;
+}
+
+app.get('/login', (req, res) => {
+  if (!authEnabled || hasValidAuthCookie(req)) {
+    return res.redirect('/');
+  }
+  return res.sendFile(path.join(__dirname, 'public', 'login.html'));
+});
+
+app.post('/login', (req, res) => {
+  if (!authEnabled) {
+    return res.redirect('/');
+  }
+
+  const { username = '', password = '' } = req.body;
+  if (username === BASIC_AUTH_USER && password === BASIC_AUTH_PASSWORD) {
+    res.setHeader('Set-Cookie', authCookieHeader(req));
+    return res.redirect('/');
+  }
+
+  return res.redirect('/login?error=1');
+});
+
+app.post('/logout', (req, res) => {
+  res.setHeader('Set-Cookie', clearAuthCookieHeader(req));
+  return res.redirect('/login');
+});
+
 app.use((req, res, next) => {
-  if (!isProduction) {
+  if (!authEnabled) {
     return next();
   }
 
-  const authHeader = req.headers.authorization || '';
-  if (!authHeader.startsWith('Basic ')) {
-    res.set('WWW-Authenticate', 'Basic realm="Image Studio"');
-    return res.status(401).send('Passord kreves i produksjon.');
+  const publicPaths = new Set(['/health', '/login', '/favicon.svg']);
+  if (publicPaths.has(req.path)) {
+    return next();
   }
 
-  const base64Credentials = authHeader.split(' ')[1];
-  let credentials;
-  try {
-    credentials = Buffer.from(base64Credentials, 'base64').toString('utf8');
-  } catch (err) {
-    res.set('WWW-Authenticate', 'Basic realm="Image Studio"');
-    return res.status(401).send('Ugyldig autentisering.');
+  if (req.method === 'POST' && req.path === '/login') {
+    return next();
   }
 
-  const [username, password] = credentials.split(':');
-  if (username !== BASIC_AUTH_USER || password !== BASIC_AUTH_PASSWORD) {
-    res.set('WWW-Authenticate', 'Basic realm="Image Studio"');
-    return res.status(401).send('Feil brukernavn eller passord.');
+  if (hasValidAuthCookie(req)) {
+    return next();
   }
 
-  return next();
+  if (req.path.startsWith('/generate')) {
+    return res.status(401).json({ error: 'Autentisering kreves.' });
+  }
+
+  return res.redirect('/login');
 });
 app.use(express.static('public'));
 

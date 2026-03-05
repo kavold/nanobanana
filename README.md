@@ -29,6 +29,7 @@ Node.js/Express-app for bildegenerering og bilderedigering med Gemini.
    PASSWORD=valgfritt_i_dev
    BASIC_AUTH_USERNAME=
    BASIC_AUTH_PASSWORD=
+   AUTH_SESSION_SECRET=
    ```
 
 ## Kjoring
@@ -42,14 +43,14 @@ Node.js/Express-app for bildegenerering og bilderedigering med Gemini.
   npm start
   ```
 
-## Produksjonsautentisering
+## Autentisering
 
-Nar `NODE_ENV=production` er satt, kreves Basic Auth for alle endepunkter unntatt `/health`.
+Hvis brukernavn/passord er satt i miljoet, kreves innlogging via `/login` for alle endepunkter unntatt `/health`.
 
 - Brukernavn hentes fra `BASIC_AUTH_USERNAME` eller `USERNAME`
 - Passord hentes fra `BASIC_AUTH_PASSWORD` eller `PASSWORD`
-
-Appen starter ikke i produksjon uten disse to variablene.
+- Etter vellykket innlogging settes en `HttpOnly` cookie
+- `AUTH_SESSION_SECRET` er valgfri, men anbefalt i produksjon
 
 ## API
 
@@ -73,8 +74,8 @@ Appen er klar for Railway med standard Node deploy:
 - `PORT` leses fra miljoet
 - Sett disse variablene i Railway:
   - `GOOGLE_API_KEY`
-  - `NODE_ENV=production`
   - `BASIC_AUTH_USERNAME` (anbefalt) eller `USERNAME`
   - `BASIC_AUTH_PASSWORD` (anbefalt) eller `PASSWORD`
+  - `AUTH_SESSION_SECRET` (anbefalt)
 
 Merk: `uploads/` og `public/generated/` ligger pa lokal disk i containeren. Uten volume/storage vil filer kunne forsvinne ved restart/redeploy.
