@@ -7,7 +7,10 @@ Node.js/Express-app for bildegenerering og bilderedigering med Gemini.
 - Tekst-til-bilde generering
 - Redigering med opptil 14 referansebilder
 - Valg av aspektforhold og opplosning
-- Valgfri Google-sok-grounding for oppdatert kontekst
+- Modellvalg per request:
+  - `gemini-3.1-flash-image-preview`
+  - `gemini-3-pro-image-preview`
+- Side-ved-side sammenligning ved a velge begge modeller samtidig
 - Nedlasting av genererte bilder fra webgrensesnittet
 
 ## Oppsett lokalt
@@ -83,9 +86,15 @@ Alle grenser kan justeres via miljo-variabler i `.env`/Railway.
   - Felter:
     - `prompt` (pakrevd)
     - `images` (valgfritt, opptil 14 filer)
+      - Merk: Inline-opplasting til Gemini image-modeller har 7 MB maks per fil
     - `aspectRatio` (valgfritt, standard `16:9`)
     - `resolution` (valgfritt, standard `2K`)
-    - `useGoogleSearch` (`true`/`false`)
+    - `models` (valgfritt, kan sendes flere ganger for sammenligning)
+      - `gemini-3.1-flash-image-preview`
+      - `gemini-3-pro-image-preview`
+  - Returnerer:
+    - `results[]` med ett resultatobjekt per modell (`model`, `label`, `text`, `image`, `error`)
+    - Backend prover fallback-forsok per modell hvis forste forsok gir tom respons
 - `GET /health`
   - Returnerer `200` og `{ "status": "ok" }`
 

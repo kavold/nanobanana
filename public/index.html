@@ -75,6 +75,33 @@
         .form-group {
             margin-bottom: 20px;
         }
+        .model-select-grid {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 10px;
+        }
+        .model-option {
+            display: flex;
+            align-items: flex-start;
+            gap: 10px;
+            padding: 12px;
+            border: 2px solid rgba(221, 221, 221, 0.5);
+            border-radius: 10px;
+            background: rgba(255, 255, 255, 0.8);
+            cursor: pointer;
+            margin-bottom: 0;
+        }
+        .model-option input[type="checkbox"] {
+            margin-top: 3px;
+            width: 18px;
+            height: 18px;
+        }
+        .model-option small {
+            display: block;
+            margin-top: 4px;
+            color: #666;
+            font-weight: 400;
+        }
         label {
             display: block;
             margin-bottom: 5px;
@@ -157,28 +184,47 @@
             float: none;
             clear: both;
         }
-                #resultText {
-                    display: block !important;
-                    width: 100% !important;
-                    overflow: hidden;
-                }
-                #resultText p,
-                #resultText img,
-                #resultText div,
-                #resultText a {
-                    display: block !important;
-                    width: 100% !important;
-                    max-width: 100% !important;
-                    float: none !important;
-                    clear: both !important;
-                    margin-left: 0 !important;
-                    margin-right: 0 !important;
-                    box-sizing: border-box !important;
-                }
-                #resultText a.download-btn {
-                    display: inline-block !important;
-                    width: auto !important;
-                }
+        #resultText {
+            display: block;
+            width: 100%;
+            overflow: hidden;
+        }
+        #resultText .result-grid {
+            display: grid !important;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 15px;
+        }
+        #resultText .result-card {
+            display: block !important;
+            width: auto !important;
+            max-width: none !important;
+            border: 1px solid rgba(15, 76, 129, 0.2);
+            border-radius: 10px;
+            padding: 15px;
+            background: #fff;
+            color: #0f172a;
+        }
+        #resultText .result-card h4 {
+            margin-top: 0;
+            margin-bottom: 8px;
+        }
+        #resultText .result-card .result-model-id {
+            margin-top: 0;
+            margin-bottom: 12px;
+            color: #64748b;
+            font-size: 12px;
+        }
+        #resultText .result-card .model-error {
+            color: #991b1b;
+            background: #fee2e2;
+            border: 1px solid #fecaca;
+            border-radius: 8px;
+            padding: 10px;
+        }
+        #resultText .result-card a.download-btn {
+            display: inline-block !important;
+            width: auto !important;
+        }
         #resultImage {
             display: block;
             width: 100%;
@@ -403,13 +449,13 @@
         <div class="header">
             <div class="brand-mark" aria-hidden="true">IS</div>
             <h1 class="main-title">Nano Banana Studio</h1>
-            <div class="subtitle">Gemini 3.1 Pro Image Preview</div>
+            <div class="subtitle">Gemini Image Model Sammenligning</div>
         </div>
         
         <div class="model-info">
             <h3>Profesjonell AI-bildegenerator</h3>
             <p class="model-description">
-                Generer bilder med Gemini 3.1 Flash Image Preview fra tekst, eller bruk opptil 14 referansebilder for redigering og komposisjon. Løsningen er laget for rask prototyping med støtte for forskjellige format og oppløsninger.
+                Generer bilder med Gemini 3.1 Flash Image Preview og Gemini 3 Pro Image Preview. Du kan velge en modell, eller begge samtidig for side-ved-side sammenligning med samme prompt og referansebilder.
             </p>
            
         </div>
@@ -418,6 +464,26 @@
             <div class="form-group">
                 <label for="prompt">Beskrivelse (påkrevd):</label>
                 <textarea id="prompt" placeholder="Beskriv bildet du vil generere..." required></textarea>
+            </div>
+
+            <div class="form-group">
+                <label>Modellvalg:</label>
+                <div class="model-select-grid">
+                    <label class="model-option">
+                        <input type="checkbox" name="models" value="gemini-3.1-flash-image-preview" checked>
+                        <span>
+                            <strong>Gemini 3.1 Flash Image Preview</strong>
+                            <small>Anbefalt som standard for rask generering.</small>
+                        </span>
+                    </label>
+                    <label class="model-option">
+                        <input type="checkbox" name="models" value="gemini-3-pro-image-preview">
+                        <span>
+                            <strong>Gemini 3 Pro Image Preview</strong>
+                            <small>Kan velges sammen med 3.1 Flash for direkte sammenligning.</small>
+                        </span>
+                    </label>
+                </div>
             </div>
 
             <div class="form-group">
@@ -446,16 +512,6 @@
             </div>
 
             <div class="form-group">
-                <div class="checkbox-group">
-                    <input type="checkbox" id="useGoogleSearch">
-                    <label for="useGoogleSearch">
-                        Bruk Google-søk for sanntidsdata og verifisering
-                        <div class="checkbox-description">Aktiverer modellen til å søke på nettet for oppdatert informasjon (f.eks. værdata, nyheter, aktuelle hendelser)</div>
-                    </label>
-                </div>
-            </div>
-
-            <div class="form-group">
                 <label for="images">Referansebilder (valgfritt, maks 14):</label>
                 <input type="file" id="images" accept="image/*" multiple>
                 <small style="color: #666;">Last opp inntil 14 bilder som referanse. Inntil 6 bilder av objekter og inntil 5 bilder av mennesker for karakterkonsistens.</small>
@@ -468,7 +524,7 @@
         
         <div id="loading" class="loading">
             <div class="spinner"></div>
-            <p>Genererer bildet ditt...</p>
+            <p>Genererer resultater...</p>
         </div>
         
         <div id="result" class="result">
@@ -488,6 +544,15 @@
             const looksLikeHtml = contentType.includes('text/html') || trimmedResponse.startsWith('<');
 
             if (serverError) {
+                if (parsedData && Array.isArray(parsedData.results) && parsedData.results.length > 0) {
+                    const modelDetails = parsedData.results
+                        .filter(item => item && item.error)
+                        .map(item => `${item.model || 'model'}: ${item.error}`)
+                        .join(' | ');
+                    if (modelDetails) {
+                        return `Feil fra server (${status}): ${serverError} (${modelDetails})`;
+                    }
+                }
                 return `Feil fra server (${status}): ${serverError}`;
             }
 
@@ -524,18 +589,116 @@
             return `Serverfeil (${status}).`;
         }
 
+        function escapeHtml(text) {
+            return String(text || '')
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;');
+        }
+
+        function renderGroundingMetadata(groundingMetadata) {
+            if (!groundingMetadata) {
+                return '';
+            }
+
+            let html = '<div class="grounding-metadata">';
+            html += '<h4>Google-sok informasjon</h4>';
+
+            if (groundingMetadata.webSearchQueries && groundingMetadata.webSearchQueries.length > 0) {
+                html += `<p><strong>Sokeord brukt:</strong> ${groundingMetadata.webSearchQueries.map(escapeHtml).join(', ')}</p>`;
+            }
+
+            if (groundingMetadata.groundingChunks && groundingMetadata.groundingChunks.length > 0) {
+                html += '<p><strong>Kilder brukt:</strong></p>';
+                html += '<ul class="grounding-chunks">';
+                groundingMetadata.groundingChunks.forEach((chunk) => {
+                    if (!chunk.web) {
+                        return;
+                    }
+                    const uri = chunk.web.uri ? escapeHtml(chunk.web.uri) : '';
+                    const title = chunk.web.title ? escapeHtml(chunk.web.title) : uri;
+                    html += '<li>';
+                    html += `<a href="${uri}" target="_blank" rel="noopener noreferrer">${title}</a>`;
+                    if (uri) {
+                        html += `<br><small style="color: #666;">${uri}</small>`;
+                    }
+                    html += '</li>';
+                });
+                html += '</ul>';
+            }
+
+            if (groundingMetadata.searchEntryPoint && groundingMetadata.searchEntryPoint.renderedContent) {
+                html += `<div class="search-entry-point">${groundingMetadata.searchEntryPoint.renderedContent}</div>`;
+            }
+
+            html += '</div>';
+            return html;
+        }
+
+        function normalizeResults(data) {
+            if (Array.isArray(data.results) && data.results.length > 0) {
+                return data.results;
+            }
+            return [{
+                model: 'selected-model',
+                label: 'Valgt modell',
+                text: data.text || null,
+                image: data.image || null,
+                groundingMetadata: data.groundingMetadata || null,
+                error: data.error || null
+            }];
+        }
+
+        function renderModelCard(item) {
+            let html = '<div class="result-card">';
+            html += `<h4>${escapeHtml(item.label || item.model || 'Modell')}</h4>`;
+            html += `<p class="result-model-id">${escapeHtml(item.model || '')}</p>`;
+
+            if (item.error) {
+                html += `<div class="model-error"><strong>Feil:</strong> ${escapeHtml(item.error)}</div>`;
+                html += '</div>';
+                return html;
+            }
+
+            if (item.image) {
+                const imageUrl = escapeHtml(item.image);
+                html += '<div class="image-result-container">';
+                html += '<p><strong>Generert bilde:</strong></p>';
+                html += `<img src="${imageUrl}" alt="Generert bilde" class="generated-image">`;
+                html += '<div class="image-actions">';
+                html += `<a href="${imageUrl}" download="generated-image.png" class="download-btn">Last ned bilde</a>`;
+                html += `<button type="button" class="download-btn" style="margin-left: 10px; background: linear-gradient(135deg, #0f766e 0%, #0f4c81 100%);" onclick="addGeneratedImageAsReference('${imageUrl}')">Bruk som referanse</button>`;
+                html += '</div>';
+                html += '</div>';
+            }
+
+            if (item.text) {
+                html += `<p><strong>Generert tekst:</strong></p><p>${escapeHtml(item.text)}</p>`;
+            }
+
+            html += renderGroundingMetadata(item.groundingMetadata);
+            html += '</div>';
+            return html;
+        }
+
         document.getElementById('generateForm').addEventListener('submit', async function(e) {
             e.preventDefault();
 
             const prompt = document.getElementById('prompt').value;
             const aspectRatio = document.getElementById('aspectRatio').value;
             const resolution = document.getElementById('resolution').value;
-            const useGoogleSearch = document.getElementById('useGoogleSearch').checked;
+            const selectedModels = Array.from(document.querySelectorAll('input[name="models"]:checked')).map(input => input.value);
             const resultDiv = document.getElementById('result');
             const loadingDiv = document.getElementById('loading');
 
             if (selectedFiles.length > 14) {
                 alert('Maksimalt 14 bilder tillatt');
+                return;
+            }
+            if (selectedModels.length === 0) {
+                alert('Velg minst en modell.');
                 return;
             }
 
@@ -546,7 +709,7 @@
             formData.append('prompt', prompt);
             formData.append('aspectRatio', aspectRatio);
             formData.append('resolution', resolution);
-            formData.append('useGoogleSearch', useGoogleSearch);
+            selectedModels.forEach((model) => formData.append('models', model));
 
             for (let i = 0; i < selectedFiles.length; i++) {
                 formData.append('images', selectedFiles[i]);
@@ -593,59 +756,12 @@
                 
                 loadingDiv.style.display = 'none';
                 resultDiv.style.display = 'block';
-                
-                resultDiv.className = 'result success';
-                let html = '';
 
-                if (data.text) {
-                    html += `<p><strong>Generert tekst:</strong></p><p>${data.text}</p>`;
-                }
-
-                if (data.image) {
-                    html += `<div class="image-result-container">`;
-                    html += `<p><strong>Generert bilde:</strong></p>`;
-                    html += `<img src="${data.image}" alt="Generert bilde" class="generated-image">`;
-                    html += `<div class="image-actions">`;
-                    html += `<a href="${data.image}" download="generated-image.png" class="download-btn">Last ned bilde</a>`;
-                    html += `<button type="button" class="download-btn" style="margin-left: 10px; background: linear-gradient(135deg, #0f766e 0%, #0f4c81 100%);" onclick="addGeneratedImageAsReference('${data.image}')">Bruk som referanse</button>`;
-                    html += `</div>`;
-                    html += `</div>`;
-                }
-
-                // Display grounding metadata if available
-                if (data.groundingMetadata) {
-                    html += `<div class="grounding-metadata">`;
-                    html += `<h4>🔍 Google-søk informasjon</h4>`;
-
-                    if (data.groundingMetadata.webSearchQueries && data.groundingMetadata.webSearchQueries.length > 0) {
-                        html += `<p><strong>Søkeord brukt:</strong> ${data.groundingMetadata.webSearchQueries.join(', ')}</p>`;
-                    }
-
-                    if (data.groundingMetadata.groundingChunks && data.groundingMetadata.groundingChunks.length > 0) {
-                        html += `<p><strong>Kilder brukt for å generere bildet:</strong></p>`;
-                        html += `<ul class="grounding-chunks">`;
-                        data.groundingMetadata.groundingChunks.forEach((chunk, index) => {
-                            if (chunk.web) {
-                                html += `<li>`;
-                                html += `<a href="${chunk.web.uri}" target="_blank" rel="noopener noreferrer">${chunk.web.title || chunk.web.uri}</a>`;
-                                if (chunk.web.uri) {
-                                    html += `<br><small style="color: #666;">${chunk.web.uri}</small>`;
-                                }
-                                html += `</li>`;
-                            }
-                        });
-                        html += `</ul>`;
-                    }
-
-                    if (data.groundingMetadata.searchEntryPoint && data.groundingMetadata.searchEntryPoint.renderedContent) {
-                        html += `<div class="search-entry-point">`;
-                        html += data.groundingMetadata.searchEntryPoint.renderedContent;
-                        html += `</div>`;
-                    }
-                    html += `</div>`;
-                }
-
-                document.getElementById('resultText').innerHTML = html;
+                const results = normalizeResults(data);
+                const hasSuccess = results.some((item) => (item.image || item.text) && !item.error);
+                resultDiv.className = hasSuccess ? 'result success' : 'result error';
+                const cardsHtml = results.map(renderModelCard).join('');
+                document.getElementById('resultText').innerHTML = `<div class="result-grid">${cardsHtml}</div>`;
                 
             } catch (error) {
                 console.error('Frontend error:', error);

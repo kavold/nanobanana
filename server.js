@@ -440,6 +440,112 @@ const upload = multer({
 
 const genAI = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY);
 
+const IMAGE_MODEL_CONFIGS = {
+  'gemini-3.1-flash-image-preview': {
+    label: 'Gemini 3.1 Flash Image Preview',
+    supportsAspectRatio: true,
+    supportsGoogleSearch: false
+  },
+  'gemini-3-pro-image-preview': {
+    label: 'Gemini 3 Pro Image Preview',
+    supportsAspectRatio: true,
+    supportsGoogleSearch: false
+  }
+};
+const DEFAULT_IMAGE_MODEL = 'gemini-3.1-flash-image-preview';
+const MAX_INLINE_IMAGE_BYTES = 7 * 1024 * 1024;
+
+function normalizeSelectedModels(rawModels) {
+  const values = Array.isArray(rawModels) ? rawModels : [rawModels];
+  const requested = values
+    .filter((value) => typeof value === 'string' && value.trim() !== '')
+    .map((value) => value.trim());
+  const fallbackModels = requested.length > 0 ? requested : [DEFAULT_IMAGE_MODEL];
+  const uniqueModels = [...new Set(fallbackModels)];
+  return uniqueModels.filter((model) => IMAGE_MODEL_CONFIGS[model]);
+}
+
+function summarizeResponseForDebug(response) {
+  if (!response || typeof response !== 'object') {
+    return 'No response object';
+  }
+
+  const segments = [];
+  if (Array.isArray(response.candidates)) {
+    segments.push(`candidates=${response.candidates.length}`);
+  }
+  if (response.promptFeedback && response.promptFeedback.blockReason) {
+    segments.push(`blockReason=${response.promptFeedback.blockReason}`);
+  }
+  if (response.promptFeedback && response.promptFeedback.blockReasonMessage) {
+    segments.push(`blockReasonMessage=${response.promptFeedback.blockReasonMessage}`);
+  }
+  if (response.modelVersion) {
+    segments.push(`modelVersion=${response.modelVersion}`);
+  }
+  return segments.length > 0 ? segments.join(', ') : 'No extra metadata';
+}
+
+function validateInlineInputFiles(files) {
+  if (!files || !Array.isArray(files) || files.length === 0) {
+    return null;
+  }
+
+  const oversized = files.filter((file) => file && file.size > MAX_INLINE_IMAGE_BYTES);
+  if (oversized.length > 0) {
+    const details = oversized
+      .map((file) => `${file.originalname || file.filename || 'ukjent-fil'} (${(file.size / (1024 * 1024)).toFixed(2)} MB)`)
+      .join(', ');
+    return `En eller flere filer er for store for Gemini inline-opplasting. Maks er 7 MB per fil. For store filer: ${details}`;
+  }
+
+  return null;
+}
+
+function buildAttemptPlan(resolution, includeAspectRatio) {
+  const rawAttempts = [];
+
+  rawAttempts.push({
+    resolution,
+    includeAspectRatio,
+    label: 'requested'
+  });
+
+  if (includeAspectRatio) {
+    rawAttempts.push({
+      resolution,
+      includeAspectRatio: false,
+      label: 'no-aspect-ratio'
+    });
+  }
+
+  if (resolution !== '1K') {
+    rawAttempts.push({
+      resolution: '1K',
+      includeAspectRatio,
+      label: 'fallback-1k'
+    });
+    rawAttempts.push({
+      resolution: '1K',
+      includeAspectRatio: false,
+      label: 'fallback-1k-no-aspect-ratio'
+    });
+  }
+
+  const deduped = [];
+  const seen = new Set();
+  for (const attempt of rawAttempts) {
+    const key = `${attempt.resolution}|${attempt.includeAspectRatio}`;
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    deduped.push(attempt);
+  }
+
+  return deduped;
+}
+
 function fileToGenerativePart(path, mimeType) {
   return {
     inlineData: {
@@ -449,26 +555,58 @@ function fileToGenerativePart(path, mimeType) {
   };
 }
 
-// Error handling middleware for multer
-app.use('/generate', (error, req, res, next) => {
-  if (error instanceof multer.MulterError) {
-    if (error.code === 'LIMIT_FILE_SIZE') {
-      return res.status(400).json({ error: 'Filen er for stor. Maksimum størrelse er 50MB per fil.' });
-    }
-    if (error.code === 'LIMIT_FILE_COUNT') {
-      return res.status(400).json({ error: 'For mange filer. Maksimum 14 filer tillatt.' });
-    }
-    return res.status(400).json({ error: 'Fileopplastingsfeil: ' + error.message });
+function saveInlineImage(base64Data, modelId) {
+  const imageBuffer = Buffer.from(base64Data, 'base64');
+  const modelSuffix = modelId.replace(/[^a-z0-9]+/gi, '-').toLowerCase();
+  const filename = `generated_${Date.now()}_${modelSuffix}.png`;
+  const generatedDir = path.join(__dirname, 'public', 'generated');
+  const filepath = path.join(generatedDir, filename);
+
+  if (!fs.existsSync(generatedDir)) {
+    fs.mkdirSync(generatedDir, { recursive: true });
   }
-  return res.status(500).json({ error: 'Server feil: ' + error.message });
-});
+
+  fs.writeFileSync(filepath, imageBuffer);
+  return `/generated/${filename}`;
+}
+
+function cleanupUploadedFiles(files) {
+  if (!files || !Array.isArray(files)) {
+    return;
+  }
+
+  files.forEach((file) => {
+    if (file && file.path && fs.existsSync(file.path)) {
+      fs.unlinkSync(file.path);
+    }
+  });
+}
 
 app.post('/generate', generateIpRateLimiter, generateUserRateLimiter, upload.array('images', 14), async (req, res) => {
   try {
-    const { prompt, aspectRatio = '16:9', resolution = '2K', useGoogleSearch } = req.body;
+    const {
+      prompt,
+      aspectRatio = '16:9',
+      resolution = '2K',
+      useGoogleSearch,
+      models
+    } = req.body;
 
     if (!prompt) {
       return res.status(400).json({ error: 'Prompt is required' });
+    }
+
+    const fileValidationError = validateInlineInputFiles(req.files);
+    if (fileValidationError) {
+      cleanupUploadedFiles(req.files);
+      return res.status(400).json({ error: fileValidationError });
+    }
+
+    const selectedModels = normalizeSelectedModels(models);
+    if (selectedModels.length === 0) {
+      return res.status(400).json({
+        error: `Ingen gyldige modeller valgt. Tillatte modeller: ${Object.keys(IMAGE_MODEL_CONFIGS).join(', ')}`
+      });
     }
 
     const budgetResult = consumeGenerateBudget();
@@ -477,28 +615,6 @@ app.post('/generate', generateIpRateLimiter, generateUserRateLimiter, upload.arr
       return res.status(429).json({ error: budgetResult.error });
     }
 
-    const generationConfig = {
-      temperature: 0.7,
-      maxOutputTokens: 2048,
-      imageConfig: {
-        aspectRatio: aspectRatio,
-        imageSize: resolution
-      }
-    };
-
-    // Build model config
-    const modelConfig = {
-      model: 'emini-3.1-flash-image-preview',
-      generationConfig: generationConfig
-    };
-
-    // Add Google Search tool if enabled
-    if (useGoogleSearch === 'true') {
-      modelConfig.tools = [{"google_search": {}}];
-    }
-
-    const model = genAI.getGenerativeModel(modelConfig);
-    
     // Build parts array based on input
     const parts = [];
     
@@ -526,102 +642,163 @@ app.post('/generate', generateIpRateLimiter, generateUserRateLimiter, upload.arr
     console.log('Sending request to Gemini with prompt:', parts[0]);
     console.log('Number of input images:', req.files ? req.files.length : 0);
     console.log('Total parts in request:', parts.length);
-    
-    const result = await model.generateContent(parts);
-    const response = await result.response;
-    
-    console.log('Response received from Gemini');
-    
-    const candidates = response.candidates;
-    if (!candidates || candidates.length === 0) {
-      console.log('No candidates in response');
-      console.log('Full response:', JSON.stringify(response, null, 2));
-      
-      // Special handling for multi-image requests
-      if (req.files && req.files.length > 1) {
-        return res.status(500).json({ 
-          error: 'Multi-image fusion ikke tilgjengelig ennå. Prøv med ett bilde om gangen, eller uten bilder for tekst-til-bilde generering.' 
-        });
-      }
-      
-      return res.status(500).json({ error: 'Ingen innhold generert. Prøv en annen beskrivelse.' });
-    }
 
-    const content = candidates[0].content;
-    if (!content || !content.parts) {
-      console.log('No content or parts in response');
-      console.log('Content:', content);
-      return res.status(500).json({ error: 'Tom respons fra modellen. Prøv en annen beskrivelse.' });
-    }
-    
-    const parts_response = content.parts;
-    
-    console.log('Number of parts in response:', parts_response.length);
+    const modelResults = [];
+    for (const selectedModel of selectedModels) {
+      const modelConfigMeta = IMAGE_MODEL_CONFIGS[selectedModel];
+      const modelResult = {
+        model: selectedModel,
+        label: modelConfigMeta.label,
+        text: null,
+        image: null,
+        groundingMetadata: null,
+        error: null,
+        debug: {
+          attempts: []
+        }
+      };
 
-    let generatedText = '';
-    let generatedImage = null;
+      const attemptPlan = buildAttemptPlan(
+        resolution,
+        Boolean(modelConfigMeta.supportsAspectRatio && aspectRatio)
+      );
+      let modelSucceeded = false;
 
-    for (const part of parts_response) {
-      console.log('Processing part:', part.text ? 'text' : part.inlineData ? 'image' : 'unknown');
+      for (const attempt of attemptPlan) {
+        const generationConfig = {
+          temperature: 0.7,
+          maxOutputTokens: 2048,
+          imageConfig: {
+            imageSize: attempt.resolution
+          }
+        };
 
-      if (part.text) {
-        generatedText += part.text;
-      } else if (part.inlineData) {
-        console.log('Found image data, saving...');
-        const imageBuffer = Buffer.from(part.inlineData.data, 'base64');
-        const filename = `generated_${Date.now()}.png`;
-        const filepath = path.join(__dirname, 'public', 'generated', filename);
-
-        if (!fs.existsSync(path.join(__dirname, 'public', 'generated'))) {
-          fs.mkdirSync(path.join(__dirname, 'public', 'generated'), { recursive: true });
+        if (attempt.includeAspectRatio) {
+          generationConfig.imageConfig.aspectRatio = aspectRatio;
         }
 
-        fs.writeFileSync(filepath, imageBuffer);
-        generatedImage = `/generated/${filename}`;
-        console.log('Image saved:', filename);
+        const modelConfig = {
+          model: selectedModel,
+          generationConfig
+        };
+
+        if (useGoogleSearch === 'true' && modelConfigMeta.supportsGoogleSearch) {
+          modelConfig.tools = [{ google_search: {} }];
+        }
+
+        try {
+          console.log(`Calling model: ${selectedModel} (attempt=${attempt.label}, resolution=${attempt.resolution}, aspectRatio=${attempt.includeAspectRatio ? aspectRatio : 'none'})`);
+          const model = genAI.getGenerativeModel(modelConfig);
+          const result = await model.generateContent(parts);
+          const response = await result.response;
+          const candidates = response.candidates || [];
+          const debugSummary = summarizeResponseForDebug(response);
+          modelResult.debug.attempts.push({
+            label: attempt.label,
+            resolution: attempt.resolution,
+            aspectRatio: attempt.includeAspectRatio ? aspectRatio : null,
+            summary: debugSummary
+          });
+
+          if (candidates.length === 0) {
+            modelResult.error = `Ingen kandidater returnert fra modellen (${debugSummary}).`;
+            continue;
+          }
+
+          const content = candidates[0].content;
+          if (!content || !content.parts || content.parts.length === 0) {
+            modelResult.error = `Tom respons fra modellen (${debugSummary}).`;
+            continue;
+          }
+
+          for (const part of content.parts) {
+            if (part.text) {
+              modelResult.text = `${modelResult.text || ''}${part.text}`;
+            } else if (part.inlineData && part.inlineData.data) {
+              modelResult.image = saveInlineImage(part.inlineData.data, selectedModel);
+            }
+          }
+
+          if (candidates[0].groundingMetadata) {
+            modelResult.groundingMetadata = {
+              searchEntryPoint: candidates[0].groundingMetadata.searchEntryPoint || null,
+              groundingChunks: candidates[0].groundingMetadata.groundingChunks || null,
+              webSearchQueries: candidates[0].groundingMetadata.webSearchQueries || null
+            };
+          }
+
+          if (!modelResult.text && !modelResult.image) {
+            modelResult.error = `Modellen returnerte ingen brukbar tekst eller bilde (${debugSummary}).`;
+            continue;
+          }
+
+          modelResult.error = null;
+          modelSucceeded = true;
+          break;
+        } catch (modelError) {
+          console.error(`Error from model ${selectedModel} attempt ${attempt.label}:`, modelError);
+          const message = modelError && modelError.message
+            ? modelError.message
+            : 'Ukjent modellfeil';
+          modelResult.debug.attempts.push({
+            label: attempt.label,
+            resolution: attempt.resolution,
+            aspectRatio: attempt.includeAspectRatio ? aspectRatio : null,
+            summary: `exception=${message}`
+          });
+          modelResult.error = message;
+
+          // Retry only for model-content issues; invalid API key/quota should fail fast.
+          if (message.includes('API_KEY') || message.includes('quota') || message.includes('QUOTA_EXCEEDED')) {
+            break;
+          }
+        }
       }
+
+      if (!modelSucceeded && modelResult.error && modelResult.debug.attempts.length > 0) {
+        modelResult.error = `${modelResult.error} (forsok: ${modelResult.debug.attempts.length})`;
+      }
+
+      modelResults.push(modelResult);
     }
 
-    // Extract grounding metadata if available (from Google Search)
-    let groundingMetadata = null;
-    if (candidates[0].groundingMetadata) {
-      console.log('Found grounding metadata');
-      groundingMetadata = {
-        searchEntryPoint: candidates[0].groundingMetadata.searchEntryPoint || null,
-        groundingChunks: candidates[0].groundingMetadata.groundingChunks || null,
-        webSearchQueries: candidates[0].groundingMetadata.webSearchQueries || null
-      };
-    }
+    cleanupUploadedFiles(req.files);
 
-    if (req.files) {
-      req.files.forEach(file => {
-        fs.unlinkSync(file.path);
+    const hasAnySuccess = modelResults.some((item) => item.image || item.text);
+    if (!hasAnySuccess) {
+      return res.status(500).json({
+        error: 'Ingen modeller returnerte gyldig innhold. Se detaljer per modell.',
+        results: modelResults
       });
     }
 
-    res.json({
-      text: generatedText || null,
-      image: generatedImage,
-      groundingMetadata: groundingMetadata
+    if (modelResults.length === 1) {
+      const single = modelResults[0];
+      return res.json({
+        text: single.text,
+        image: single.image,
+        groundingMetadata: single.groundingMetadata,
+        results: modelResults
+      });
+    }
+
+    return res.json({
+      results: modelResults
     });
 
   } catch (error) {
     console.error('Detailed error:', error);
     console.error('Error message:', error.message);
     console.error('Error stack:', error.stack);
-    
-    if (req.files) {
-      req.files.forEach(file => {
-        if (fs.existsSync(file.path)) {
-          fs.unlinkSync(file.path);
-        }
-      });
-    }
+
+    cleanupUploadedFiles(req.files);
     
     let errorMessage = 'Failed to generate content';
     
-    if (error.message.includes('API_KEY') || error.message.includes('INVALID_ARGUMENT')) {
+    if (error.message.includes('API_KEY')) {
       errorMessage = 'Invalid or missing Google API key. Please check your .env file.';
+    } else if (error.message.includes('INVALID_ARGUMENT')) {
+      errorMessage = 'Ugyldig foresporsel til modellen. Sjekk modellvalg og parametre.';
     } else if (error.message.includes('quota') || error.message.includes('QUOTA_EXCEEDED')) {
       errorMessage = 'API quota exceeded. Please try again later.';
     } else if (error.message.includes('safety') || error.message.includes('SAFETY')) {
@@ -642,4 +819,22 @@ app.get('/', (req, res) => {
 
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
+});
+
+app.use((error, req, res, next) => {
+  if (error instanceof multer.MulterError) {
+    if (error.code === 'LIMIT_FILE_SIZE') {
+      return res.status(400).json({ error: 'Filen er for stor. Maksimum størrelse er 50MB per fil.' });
+    }
+    if (error.code === 'LIMIT_FILE_COUNT') {
+      return res.status(400).json({ error: 'For mange filer. Maksimum 14 filer tillatt.' });
+    }
+    return res.status(400).json({ error: 'Fileopplastingsfeil: ' + error.message });
+  }
+
+  if (req.path && req.path.startsWith('/generate')) {
+    return res.status(500).json({ error: 'Server feil: ' + error.message });
+  }
+
+  return next(error);
 });
