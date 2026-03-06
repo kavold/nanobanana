@@ -488,7 +488,7 @@ app.post('/generate', generateIpRateLimiter, generateUserRateLimiter, upload.arr
 
     // Build model config
     const modelConfig = {
-      model: 'gemini-3-pro-image-preview',
+      model: 'gemini-3.1-pro-preview',
       generationConfig: generationConfig
     };
 
