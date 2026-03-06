@@ -454,6 +454,12 @@ const IMAGE_MODEL_CONFIGS = {
 };
 const DEFAULT_IMAGE_MODEL = 'gemini-3.1-flash-image-preview';
 const MAX_INLINE_IMAGE_BYTES = 7 * 1024 * 1024;
+const RELAXED_SAFETY_SETTINGS = [
+  { category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_ONLY_HIGH' },
+  { category: 'HARM_CATEGORY_HATE_SPEECH', threshold: 'BLOCK_ONLY_HIGH' },
+  { category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT', threshold: 'BLOCK_ONLY_HIGH' },
+  { category: 'HARM_CATEGORY_DANGEROUS_CONTENT', threshold: 'BLOCK_ONLY_HIGH' }
+];
 
 function normalizeSelectedModels(rawModels) {
   const values = Array.isArray(rawModels) ? rawModels : [rawModels];
@@ -508,14 +514,16 @@ function buildAttemptPlan(resolution, includeAspectRatio) {
   rawAttempts.push({
     resolution,
     includeAspectRatio,
-    label: 'requested'
+    label: 'requested',
+    safetyMode: 'default'
   });
 
   if (includeAspectRatio) {
     rawAttempts.push({
       resolution,
       includeAspectRatio: false,
-      label: 'no-aspect-ratio'
+      label: 'no-aspect-ratio',
+      safetyMode: 'default'
     });
   }
 
@@ -523,19 +531,31 @@ function buildAttemptPlan(resolution, includeAspectRatio) {
     rawAttempts.push({
       resolution: '1K',
       includeAspectRatio,
-      label: 'fallback-1k'
+      label: 'fallback-1k',
+      safetyMode: 'default'
     });
     rawAttempts.push({
       resolution: '1K',
       includeAspectRatio: false,
-      label: 'fallback-1k-no-aspect-ratio'
+      label: 'fallback-1k-no-aspect-ratio',
+      safetyMode: 'default'
+    });
+  }
+
+  const defaultAttempts = [...rawAttempts];
+  for (const attempt of defaultAttempts) {
+    rawAttempts.push({
+      resolution: attempt.resolution,
+      includeAspectRatio: attempt.includeAspectRatio,
+      label: `${attempt.label}-relaxed-safety`,
+      safetyMode: 'relaxed'
     });
   }
 
   const deduped = [];
   const seen = new Set();
   for (const attempt of rawAttempts) {
-    const key = `${attempt.resolution}|${attempt.includeAspectRatio}`;
+    const key = `${attempt.resolution}|${attempt.includeAspectRatio}|${attempt.safetyMode}`;
     if (seen.has(key)) {
       continue;
     }
@@ -618,18 +638,8 @@ app.post('/generate', generateIpRateLimiter, generateUserRateLimiter, upload.arr
     // Build parts array based on input
     const parts = [];
     
-    // Add prompt first
-    if (req.files && req.files.length > 0) {
-      // When we have images, be more explicit about what we want
-      if (req.files.length === 1) {
-        parts.push(`Based on this image: ${prompt}`);
-      } else {
-        parts.push(`Using these ${req.files.length} reference images: ${prompt}`);
-      }
-    } else {
-      // No input images, generate from scratch
-      parts.push(`Generate an image: ${prompt}`);
-    }
+    // Keep user prompt unchanged to avoid introducing extra policy-sensitive phrasing.
+    parts.push(prompt);
     
     // Add images after the prompt
     if (req.files && req.files.length > 0) {
@@ -686,8 +696,12 @@ app.post('/generate', generateIpRateLimiter, generateUserRateLimiter, upload.arr
           modelConfig.tools = [{ google_search: {} }];
         }
 
+        if (attempt.safetyMode === 'relaxed') {
+          modelConfig.safetySettings = RELAXED_SAFETY_SETTINGS;
+        }
+
         try {
-          console.log(`Calling model: ${selectedModel} (attempt=${attempt.label}, resolution=${attempt.resolution}, aspectRatio=${attempt.includeAspectRatio ? aspectRatio : 'none'})`);
+          console.log(`Calling model: ${selectedModel} (attempt=${attempt.label}, resolution=${attempt.resolution}, aspectRatio=${attempt.includeAspectRatio ? aspectRatio : 'none'}, safety=${attempt.safetyMode})`);
           const model = genAI.getGenerativeModel(modelConfig);
           const result = await model.generateContent(parts);
           const response = await result.response;
@@ -697,6 +711,7 @@ app.post('/generate', generateIpRateLimiter, generateUserRateLimiter, upload.arr
             label: attempt.label,
             resolution: attempt.resolution,
             aspectRatio: attempt.includeAspectRatio ? aspectRatio : null,
+            safetyMode: attempt.safetyMode,
             summary: debugSummary
           });
 
@@ -744,6 +759,7 @@ app.post('/generate', generateIpRateLimiter, generateUserRateLimiter, upload.arr
             label: attempt.label,
             resolution: attempt.resolution,
             aspectRatio: attempt.includeAspectRatio ? aspectRatio : null,
+            safetyMode: attempt.safetyMode,
             summary: `exception=${message}`
           });
           modelResult.error = message;

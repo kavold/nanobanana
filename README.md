@@ -94,7 +94,10 @@ Alle grenser kan justeres via miljo-variabler i `.env`/Railway.
       - `gemini-3-pro-image-preview`
   - Returnerer:
     - `results[]` med ett resultatobjekt per modell (`model`, `label`, `text`, `image`, `error`)
-    - Backend prover fallback-forsok per modell hvis forste forsok gir tom respons
+    - Backend prover fallback-forsok per modell hvis forste forsok gir tom respons:
+      - uten `aspectRatio`
+      - med `1K` fallback-opplosning
+      - med mer tolerant safety-threshold (`BLOCK_ONLY_HIGH`)
 - `GET /health`
   - Returnerer `200` og `{ "status": "ok" }`
 
