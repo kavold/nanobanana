@@ -8,6 +8,7 @@ const crypto = require('crypto');
 const dotenv = require('dotenv');
 const dotenvResult = dotenv.config();
 const envFromFile = dotenvResult.parsed || {};
+// No-op change to verify Railway auto-deploy trigger.
 
 const app = express();
 const PORT = process.env.PORT || 7654;
