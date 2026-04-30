@@ -519,6 +519,13 @@
                             <small>Best når du trenger en helt bestemt bildestørrelse i piksler, eller vil sammenligne OpenAI med Gemini.</small>
                         </span>
                     </label>
+                    <label class="model-option">
+                        <input type="checkbox" name="models" value="flux-2-max">
+                        <span>
+                            <strong>FLUX.2 Max</strong>
+                            <small>Høyeste kvalitetsmodell fra Black Forest Labs. Støtter tekst-til-bilde og opptil 8 referansebilder.</small>
+                        </span>
+                    </label>
                 </div>
             </div>
 
@@ -570,9 +577,9 @@
             </div>
 
             <div class="form-group">
-                <label for="images">Referansebilder (valgfritt, maks 14):</label>
+                <label for="images">Referansebilder (valgfritt):</label>
                 <input type="file" id="images" accept="image/*" multiple>
-                <small id="imageHelpText" style="color: #666;">Last opp inntil 14 bilder som referanse. Gemini har 7 MB maks per fil; GPT Image 2 bruker referansebilder via OpenAI sitt edits-endepunkt.</small>
+                <small id="imageHelpText" style="color: #666;">Last opp inntil 14 bilder som referanse. Gemini har 7 MB maks per fil; FLUX.2 Max støtter 8 bilder med 20 MB maks per fil.</small>
                 <div id="imageCounter" style="margin-top: 10px; font-weight: bold; color: #0f4c81;"></div>
                 <div id="imagePreview" class="image-preview"></div>
             </div>
@@ -742,11 +749,14 @@
         }
 
         const GPT_IMAGE_2_MODEL = 'gpt-image-2';
+        const FLUX_2_MAX_MODEL = 'flux-2-max';
         const OPENAI_MIN_IMAGE_PIXELS = 655360;
         const OPENAI_MAX_IMAGE_PIXELS = 8294400;
         const OPENAI_MAX_IMAGE_EDGE = 3840;
         const OPENAI_SIZE_MULTIPLE = 16;
         const OPENAI_MAX_IMAGE_RATIO = 3;
+        const BFL_MAX_INPUT_IMAGES = 8;
+        const BFL_MAX_INPUT_IMAGE_BYTES = 20 * 1024 * 1024;
 
         function getSelectedModels() {
             return Array.from(document.querySelectorAll('input[name="models"]:checked')).map(input => input.value);
@@ -755,6 +765,10 @@
         function isOnlyGptImage2Selected() {
             const selectedModels = getSelectedModels();
             return selectedModels.length === 1 && selectedModels[0] === GPT_IMAGE_2_MODEL;
+        }
+
+        function isFlux2MaxSelected() {
+            return getSelectedModels().includes(FLUX_2_MAX_MODEL);
         }
 
         function validateExactOpenAIImageSize(widthValue, heightValue) {
@@ -792,7 +806,8 @@
             const onlyGptImage2 = isOnlyGptImage2Selected();
             const selectedModels = getSelectedModels();
             const hasGptImage2 = selectedModels.includes(GPT_IMAGE_2_MODEL);
-            const hasGemini = selectedModels.some((model) => model !== GPT_IMAGE_2_MODEL);
+            const hasFlux2Max = selectedModels.includes(FLUX_2_MAX_MODEL);
+            const hasGemini = selectedModels.some((model) => model.startsWith('gemini-'));
             const sizeMode = document.getElementById('openaiSizeMode').value;
             const showSharedSizeControls = !onlyGptImage2 || sizeMode === 'aspect';
             const showExactSizeFields = onlyGptImage2 && sizeMode === 'exact';
@@ -806,7 +821,11 @@
             openaiWidthInput.disabled = !showExactSizeFields;
             openaiHeightInput.disabled = !showExactSizeFields;
 
-            if (hasGptImage2 && hasGemini) {
+            if (hasFlux2Max && hasGemini) {
+                document.getElementById('imageHelpText').textContent = 'Last opp inntil 8 bilder når FLUX.2 Max er valgt. BFL har 20 MB maks per fil; Gemini har 7 MB maks per fil ved sammenligning.';
+            } else if (hasFlux2Max) {
+                document.getElementById('imageHelpText').textContent = 'Last opp inntil 8 bilder når FLUX.2 Max er valgt. BFL har 20 MB maks per fil og bruker referansebilder via sitt FLUX.2-endepunkt.';
+            } else if (hasGptImage2 && hasGemini) {
                 document.getElementById('imageHelpText').textContent = 'Last opp inntil 14 bilder som referanse. Ved sammenligning ma bildene fungere for begge providere; Gemini har 7 MB maks per fil.';
             } else if (onlyGptImage2) {
                 document.getElementById('imageHelpText').textContent = 'Last opp inntil 14 bilder som referanse. GPT Image 2 bruker referansebilder via OpenAI sitt edits-endepunkt og behandler bildeinput med hoy fidelity.';
@@ -816,7 +835,10 @@
         }
 
         document.querySelectorAll('input[name="models"]').forEach((input) => {
-            input.addEventListener('change', updateSizeControls);
+            input.addEventListener('change', () => {
+                updateSizeControls();
+                updateImageCounter();
+            });
         });
         document.getElementById('openaiSizeMode').addEventListener('change', updateSizeControls);
         updateSizeControls();
@@ -841,6 +863,18 @@
             if (selectedModels.length === 0) {
                 alert('Velg minst en modell.');
                 return;
+            }
+            if (isFlux2MaxSelected()) {
+                if (selectedFiles.length > BFL_MAX_INPUT_IMAGES) {
+                    alert(`FLUX.2 Max støtter maks ${BFL_MAX_INPUT_IMAGES} referansebilder. Fjern noen bilder og prøv igjen.`);
+                    return;
+                }
+
+                const oversizedBflFile = selectedFiles.find((file) => file && file.size > BFL_MAX_INPUT_IMAGE_BYTES);
+                if (oversizedBflFile) {
+                    alert(`FLUX.2 Max støtter maks 20 MB per referansebilde. Filen "${oversizedBflFile.name}" er for stor.`);
+                    return;
+                }
             }
             if (isOnlyGptImage2Selected() && openaiSizeMode === 'exact') {
                 const exactSizeError = validateExactOpenAIImageSize(openaiWidth, openaiHeight);
@@ -941,7 +975,8 @@
         function updateImageCounter() {
             const counter = document.getElementById('imageCounter');
             if (selectedFiles.length > 0) {
-                counter.textContent = `${selectedFiles.length} av 14 bilder valgt`;
+                const maxImages = isFlux2MaxSelected() ? BFL_MAX_INPUT_IMAGES : 14;
+                counter.textContent = `${selectedFiles.length} av ${maxImages} bilder valgt`;
             } else {
                 counter.textContent = '';
             }
@@ -983,13 +1018,16 @@
 
         document.getElementById('images').addEventListener('change', function(e) {
             const files = Array.from(e.target.files);
+            const maxFiles = isFlux2MaxSelected() ? BFL_MAX_INPUT_IMAGES : 14;
 
             // Check if adding these files would exceed the limit
-            if (selectedFiles.length + files.length > 14) {
-                alert(`Du kan kun laste opp ${14 - selectedFiles.length} flere bilder. Maksimalt 14 bilder tillatt.`);
+            if (selectedFiles.length + files.length > maxFiles) {
+                const availableSlots = Math.max(0, maxFiles - selectedFiles.length);
+                alert(`Du kan kun laste opp ${availableSlots} flere bilder. Maksimalt ${maxFiles} bilder tillatt med valgte modeller.`);
                 // Only add files up to the limit
-                const availableSlots = 14 - selectedFiles.length;
-                selectedFiles.push(...files.slice(0, availableSlots));
+                if (availableSlots > 0) {
+                    selectedFiles.push(...files.slice(0, availableSlots));
+                }
             } else {
                 selectedFiles.push(...files);
             }
@@ -1002,8 +1040,9 @@
         });
 
         async function addGeneratedImageAsReference(imageUrl) {
-            if (selectedFiles.length >= 14) {
-                alert('Du har allerede 14 bilder. Fjern noen bilder før du legger til flere.');
+            const maxFiles = isFlux2MaxSelected() ? BFL_MAX_INPUT_IMAGES : 14;
+            if (selectedFiles.length >= maxFiles) {
+                alert(`Du har allerede ${maxFiles} bilder. Fjern noen bilder før du legger til flere.`);
                 return;
             }
 

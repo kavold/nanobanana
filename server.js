@@ -442,6 +442,10 @@ const upload = multer({
 const genAI = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY);
 const OPENAI_API_KEY = readEnv('OPENAI_API_KEY');
 const OPENAI_API_BASE_URL = readEnv('OPENAI_API_BASE_URL') || 'https://api.openai.com/v1';
+const BFL_API_KEY = readEnv('BFL_API_KEY');
+const BFL_API_BASE_URL = readEnv('BFL_API_BASE_URL') || 'https://api.bfl.ai/v1';
+const BFL_POLL_INTERVAL_MS = readEnvNumber('BFL_POLL_INTERVAL_MS', 750);
+const BFL_POLL_TIMEOUT_MS = readEnvNumber('BFL_POLL_TIMEOUT_SECONDS', 120) * 1000;
 
 const IMAGE_MODEL_CONFIGS = {
   'gemini-3.1-flash-image-preview': {
@@ -462,10 +466,24 @@ const IMAGE_MODEL_CONFIGS = {
     supportsAspectRatio: true,
     supportsGoogleSearch: false,
     supportsExactSize: true
+  },
+  'flux-2-max': {
+    label: 'FLUX.2 Max',
+    provider: 'bfl',
+    endpoint: 'flux-2-max',
+    supportsAspectRatio: true,
+    supportsGoogleSearch: false,
+    maxInputImages: 8
   }
 };
 const DEFAULT_IMAGE_MODEL = 'gemini-3.1-flash-image-preview';
 const MAX_INLINE_IMAGE_BYTES = 7 * 1024 * 1024;
+const BFL_MAX_INPUT_IMAGES = 8;
+const BFL_MAX_INPUT_IMAGE_BYTES = 20 * 1024 * 1024;
+const BFL_MIN_IMAGE_EDGE = 64;
+const BFL_MAX_IMAGE_PIXELS = 2048 * 2048;
+const BFL_SIZE_MULTIPLE = 16;
+const BFL_DEFAULT_OUTPUT_FORMAT = 'png';
 const OPENAI_MIN_IMAGE_PIXELS = 655360;
 const OPENAI_MAX_IMAGE_PIXELS = 8294400;
 const OPENAI_MAX_IMAGE_EDGE = 3840;
@@ -542,6 +560,34 @@ function validateInlineInputFiles(files, selectedModels) {
   return null;
 }
 
+function formatMegabytes(bytes) {
+  return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
+}
+
+function validateBflInputFiles(files, selectedModels) {
+  if (!files || !Array.isArray(files) || files.length === 0) {
+    return null;
+  }
+
+  if (!selectedModelsIncludeProvider(selectedModels, 'bfl')) {
+    return null;
+  }
+
+  if (files.length > BFL_MAX_INPUT_IMAGES) {
+    return `FLUX.2 Max stotter maks ${BFL_MAX_INPUT_IMAGES} referansebilder via API. Fjern ${files.length - BFL_MAX_INPUT_IMAGES} bilde(r) og prov igjen.`;
+  }
+
+  const oversized = files.filter((file) => file && file.size > BFL_MAX_INPUT_IMAGE_BYTES);
+  if (oversized.length > 0) {
+    const details = oversized
+      .map((file) => `${file.originalname || file.filename || 'ukjent-fil'} (${formatMegabytes(file.size)})`)
+      .join(', ');
+    return `En eller flere filer er for store for FLUX.2 Max. Maks er ${formatMegabytes(BFL_MAX_INPUT_IMAGE_BYTES)} per fil. For store filer: ${details}`;
+  }
+
+  return null;
+}
+
 function parseAspectRatio(aspectRatio) {
   const [rawWidth, rawHeight] = String(aspectRatio || '16:9').split(':');
   const width = Number.parseFloat(rawWidth);
@@ -549,6 +595,39 @@ function parseAspectRatio(aspectRatio) {
   if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
     return { width: 16, height: 9 };
   }
+  return { width, height };
+}
+
+function floorToMultiple(value, multiple) {
+  return Math.floor(value / multiple) * multiple;
+}
+
+function resolveBflImageSize(aspectRatio, resolution) {
+  const { width: ratioWidth, height: ratioHeight } = parseAspectRatio(aspectRatio);
+  const ratio = ratioWidth / ratioHeight;
+  const longEdgeByResolution = {
+    '1K': 1024,
+    '2K': 2048,
+    '4K': 3840
+  };
+  const requestedLongEdge = longEdgeByResolution[resolution] || longEdgeByResolution['2K'];
+  let desiredWidth = ratio >= 1 ? requestedLongEdge : requestedLongEdge * ratio;
+  let desiredHeight = ratio >= 1 ? requestedLongEdge / ratio : requestedLongEdge;
+  const desiredPixels = desiredWidth * desiredHeight;
+
+  if (desiredPixels > BFL_MAX_IMAGE_PIXELS) {
+    const scale = Math.sqrt(BFL_MAX_IMAGE_PIXELS / desiredPixels);
+    desiredWidth *= scale;
+    desiredHeight *= scale;
+  }
+
+  const width = Math.max(BFL_MIN_IMAGE_EDGE, floorToMultiple(desiredWidth, BFL_SIZE_MULTIPLE));
+  const height = Math.max(BFL_MIN_IMAGE_EDGE, floorToMultiple(desiredHeight, BFL_SIZE_MULTIPLE));
+
+  if (width * height > BFL_MAX_IMAGE_PIXELS) {
+    throw new Error('Valgt FLUX.2-storrelse overstiger 4MP-grensen.');
+  }
+
   return { width, height };
 }
 
@@ -752,6 +831,28 @@ function saveInlineImage(base64Data, modelId) {
   return `/generated/${filename}`;
 }
 
+function saveImageBuffer(imageBuffer, modelId, contentType, fallbackExtension = 'png') {
+  const normalizedContentType = String(contentType || '').split(';')[0].trim().toLowerCase();
+  const extensionByContentType = {
+    'image/jpeg': 'jpg',
+    'image/jpg': 'jpg',
+    'image/png': 'png',
+    'image/webp': 'webp'
+  };
+  const extension = extensionByContentType[normalizedContentType] || fallbackExtension;
+  const modelSuffix = modelId.replace(/[^a-z0-9]+/gi, '-').toLowerCase();
+  const filename = `generated_${Date.now()}_${modelSuffix}.${extension}`;
+  const generatedDir = path.join(__dirname, 'public', 'generated');
+  const filepath = path.join(generatedDir, filename);
+
+  if (!fs.existsSync(generatedDir)) {
+    fs.mkdirSync(generatedDir, { recursive: true });
+  }
+
+  fs.writeFileSync(filepath, imageBuffer);
+  return `/generated/${filename}`;
+}
+
 function createImageModelResult(modelId, modelConfigMeta) {
   return {
     model: modelId,
@@ -895,6 +996,204 @@ async function generateOpenAIImageEdit(modelId, prompt, files, size) {
   return requestOpenAIImages('/images/edits', { formData });
 }
 
+function getBflErrorMessage(status, responseData, responseText) {
+  if (responseData && responseData.detail) {
+    if (Array.isArray(responseData.detail)) {
+      return responseData.detail
+        .map((item) => item && item.msg ? item.msg : JSON.stringify(item))
+        .join('; ');
+    }
+    if (typeof responseData.detail === 'string') {
+      return responseData.detail;
+    }
+  }
+  if (responseData && responseData.error) {
+    return typeof responseData.error === 'string'
+      ? responseData.error
+      : JSON.stringify(responseData.error);
+  }
+  if (responseData && responseData.message) {
+    return responseData.message;
+  }
+  if (responseText && responseText.trim()) {
+    return responseText.trim().slice(0, 500);
+  }
+  return `BFL API returnerte status ${status}.`;
+}
+
+function resolveBflUrl(pathOrUrl) {
+  if (/^https?:\/\//i.test(pathOrUrl)) {
+    return pathOrUrl;
+  }
+  const baseUrl = BFL_API_BASE_URL.replace(/\/+$/, '');
+  return `${baseUrl}/${String(pathOrUrl || '').replace(/^\/+/, '')}`;
+}
+
+async function requestBflJson(pathOrUrl, { method = 'GET', jsonBody = null } = {}) {
+  if (!BFL_API_KEY) {
+    throw new Error('BFL_API_KEY mangler. Sett miljovariabelen for a bruke FLUX.2 Max.');
+  }
+
+  const headers = {
+    accept: 'application/json',
+    'x-key': BFL_API_KEY
+  };
+  const requestOptions = {
+    method,
+    headers
+  };
+
+  if (jsonBody) {
+    headers['Content-Type'] = 'application/json';
+    requestOptions.body = JSON.stringify(jsonBody);
+  }
+
+  const response = await fetch(resolveBflUrl(pathOrUrl), requestOptions);
+  const responseText = await response.text();
+  let responseData = null;
+
+  if (responseText) {
+    try {
+      responseData = JSON.parse(responseText);
+    } catch (_error) {
+      responseData = null;
+    }
+  }
+
+  if (!response.ok) {
+    throw new Error(getBflErrorMessage(response.status, responseData, responseText));
+  }
+
+  if (!responseData || typeof responseData !== 'object') {
+    throw new Error('BFL returnerte ikke gyldig JSON.');
+  }
+
+  return responseData;
+}
+
+function getBflResultErrorMessage(resultData) {
+  if (!resultData || typeof resultData !== 'object') {
+    return 'BFL returnerte et ugyldig resultat.';
+  }
+  if (resultData.details && typeof resultData.details === 'object' && Object.keys(resultData.details).length > 0) {
+    return `${resultData.status}: ${JSON.stringify(resultData.details).slice(0, 500)}`;
+  }
+  return `BFL-status: ${resultData.status || 'ukjent'}`;
+}
+
+async function pollBflResult(pollingUrl) {
+  const deadline = Date.now() + BFL_POLL_TIMEOUT_MS;
+
+  while (Date.now() <= deadline) {
+    const resultData = await requestBflJson(pollingUrl);
+    const status = resultData.status;
+
+    if (status === 'Ready') {
+      const sampleUrl = resultData.result && resultData.result.sample;
+      if (!sampleUrl) {
+        throw new Error('BFL-resultatet manglet result.sample.');
+      }
+      return resultData;
+    }
+
+    if (status === 'Error' || status === 'Failed' || status === 'Task not found' || status === 'Request Moderated' || status === 'Content Moderated') {
+      throw new Error(getBflResultErrorMessage(resultData));
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, BFL_POLL_INTERVAL_MS));
+  }
+
+  throw new Error(`BFL-resultatet ble ikke klart innen ${Math.ceil(BFL_POLL_TIMEOUT_MS / 1000)} sekunder.`);
+}
+
+function appendBflInputImages(payload, files, maxInputImages) {
+  if (!files || files.length === 0) {
+    return;
+  }
+
+  files.slice(0, maxInputImages).forEach((file, index) => {
+    const fieldName = index === 0 ? 'input_image' : `input_image_${index + 1}`;
+    payload[fieldName] = fs.readFileSync(file.path).toString('base64');
+  });
+}
+
+async function downloadBflImage(sampleUrl, modelId, outputFormat) {
+  const response = await fetch(sampleUrl);
+  if (!response.ok) {
+    const responseText = await response.text();
+    throw new Error(responseText && responseText.trim()
+      ? responseText.trim().slice(0, 500)
+      : `Klarte ikke laste ned BFL-bildet (${response.status}).`);
+  }
+
+  const imageBuffer = Buffer.from(await response.arrayBuffer());
+  const contentType = response.headers.get('content-type') || '';
+  return saveImageBuffer(imageBuffer, modelId, contentType, outputFormat);
+}
+
+async function generateWithBflImageModel(modelId, modelConfigMeta, requestContext) {
+  const modelResult = createImageModelResult(modelId, modelConfigMeta);
+  try {
+    const { prompt, files, aspectRatio, resolution } = requestContext;
+    const { width, height } = resolveBflImageSize(aspectRatio, resolution);
+    const outputFormat = BFL_DEFAULT_OUTPUT_FORMAT;
+    const payload = {
+      prompt,
+      width,
+      height,
+      safety_tolerance: 2,
+      output_format: outputFormat
+    };
+    appendBflInputImages(payload, files, modelConfigMeta.maxInputImages || BFL_MAX_INPUT_IMAGES);
+
+    modelResult.debug.attempts.push({
+      label: 'requested',
+      width,
+      height,
+      inputImages: files ? files.length : 0,
+      outputFormat
+    });
+
+    const submitResponse = await requestBflJson(modelConfigMeta.endpoint, {
+      method: 'POST',
+      jsonBody: payload
+    });
+    const pollingUrl = submitResponse.polling_url || (submitResponse.id
+      ? resolveBflUrl(`/get_result?id=${encodeURIComponent(submitResponse.id)}`)
+      : '');
+
+    if (!pollingUrl) {
+      throw new Error('BFL returnerte ikke polling_url.');
+    }
+
+    modelResult.debug.requestId = submitResponse.id || null;
+    modelResult.debug.cost = submitResponse.cost || null;
+    modelResult.debug.inputMp = submitResponse.input_mp || null;
+    modelResult.debug.outputMp = submitResponse.output_mp || null;
+
+    const resultData = await pollBflResult(pollingUrl);
+    modelResult.image = await downloadBflImage(resultData.result.sample, modelId, outputFormat);
+    modelResult.debug.status = resultData.status;
+    if (resultData.details) {
+      modelResult.debug.details = resultData.details;
+    }
+  } catch (error) {
+    const message = error && error.message ? error.message : 'Ukjent BFL-feil';
+    console.error(`Error from model ${modelId}:`, error);
+    modelResult.error = message;
+    if (modelResult.debug.attempts.length === 0) {
+      modelResult.debug.attempts.push({
+        label: 'requested',
+        summary: `exception=${message}`
+      });
+    } else {
+      modelResult.debug.attempts[modelResult.debug.attempts.length - 1].summary = `exception=${message}`;
+    }
+  }
+
+  return modelResult;
+}
+
 async function generateWithGeminiImageModel(modelId, modelConfigMeta, requestContext) {
   const { parts, aspectRatio, resolution, useGoogleSearch } = requestContext;
   const modelResult = createImageModelResult(modelId, modelConfigMeta);
@@ -1013,6 +1312,9 @@ async function generateWithSelectedImageModel(modelId, requestContext) {
   if (modelConfigMeta.provider === 'openai') {
     return generateWithOpenAIImageModel(modelId, modelConfigMeta, requestContext);
   }
+  if (modelConfigMeta.provider === 'bfl') {
+    return generateWithBflImageModel(modelId, modelConfigMeta, requestContext);
+  }
   return generateWithGeminiImageModel(modelId, modelConfigMeta, requestContext);
 }
 
@@ -1072,6 +1374,12 @@ app.post('/generate', generateIpRateLimiter, generateUserRateLimiter, upload.arr
       return res.status(400).json({ error: fileValidationError });
     }
 
+    const bflFileValidationError = validateBflInputFiles(req.files, selectedModels);
+    if (bflFileValidationError) {
+      cleanupUploadedFiles(req.files);
+      return res.status(400).json({ error: bflFileValidationError });
+    }
+
     if (selectedModelsIncludeProvider(selectedModels, 'openai')) {
       try {
         resolveOpenAIImageSize({
@@ -1101,7 +1409,7 @@ app.post('/generate', generateIpRateLimiter, generateUserRateLimiter, upload.arr
     // Keep user prompt unchanged to avoid introducing extra policy-sensitive phrasing.
     parts.push(prompt);
     
-    // Add images after the prompt for Gemini. OpenAI reads the uploaded files directly in its provider adapter.
+    // Add images after the prompt for Gemini. Other providers read the uploaded files directly in their adapters.
     if (selectedModelsIncludeProvider(selectedModels, 'google') && req.files && req.files.length > 0) {
       for (const file of req.files) {
         const imagePart = fileToGenerativePart(file.path, file.mimetype);

@@ -1,17 +1,18 @@
 # Image Studio - AI-bildegenerator
 
-Node.js/Express-app for bildegenerering og bilderedigering med Gemini og GPT Image.
+Node.js/Express-app for bildegenerering og bilderedigering med Gemini, GPT Image og FLUX.2.
 
 ## Funksjoner
 
 - Tekst-til-bilde generering
-- Redigering med opptil 14 referansebilder
+- Redigering med opptil 14 referansebilder, avhengig av valgt modell
 - Valg av aspektforhold og opplosning
 - Eksakt pixelstorrelse for GPT Image 2 nar modellen brukes alene
 - Modellvalg per request:
   - `gemini-3.1-flash-image-preview`
   - `gemini-3-pro-image-preview`
   - `gpt-image-2`
+  - `flux-2-max`
 - Side-ved-side sammenligning ved a velge flere modeller samtidig
 - Nedlasting av genererte bilder fra webgrensesnittet
 
@@ -30,6 +31,10 @@ Node.js/Express-app for bildegenerering og bilderedigering med Gemini og GPT Ima
    GOOGLE_API_KEY=din_google_api_nokkel
    OPENAI_API_KEY=din_openai_api_nokkel
    OPENAI_API_BASE_URL=
+   BFL_API_KEY=din_bfl_api_nokkel
+   BFL_API_BASE_URL=
+   BFL_POLL_INTERVAL_MS=750
+   BFL_POLL_TIMEOUT_SECONDS=120
    PORT=3001
    NODE_ENV=development
    USERNAME=valgfritt_i_dev
@@ -92,6 +97,7 @@ Alle grenser kan justeres via miljo-variabler i `.env`/Railway.
     - `images` (valgfritt, opptil 14 filer)
       - Merk: Inline-opplasting til Gemini image-modeller har 7 MB maks per fil
       - Merk: GPT Image 2 bruker OpenAI `/images/edits` nar referansebilder lastes opp. OpenAI stotter ett eller flere referansebilder, men dette er ikke helt samme modellatferd som Gemini.
+      - Merk: FLUX.2 Max bruker BFL sitt asynkrone `/flux-2-max`-endepunkt. BFL stotter opptil 8 referansebilder via API og 20 MB maks per fil.
     - `aspectRatio` (valgfritt, standard `16:9`)
     - `resolution` (valgfritt, standard `2K`)
     - `openaiSizeMode` (valgfritt, standard `aspect`)
@@ -107,8 +113,10 @@ Alle grenser kan justeres via miljo-variabler i `.env`/Railway.
       - `gemini-3.1-flash-image-preview`
       - `gemini-3-pro-image-preview`
       - `gpt-image-2`
+      - `flux-2-max`
   - Returnerer:
     - `results[]` med ett resultatobjekt per modell (`model`, `label`, `text`, `image`, `error`)
+    - FLUX.2-resultater polles via BFL sin `polling_url`, lastes ned fra den signerte resultat-URL-en og lagres lokalt under `public/generated/`
     - Backend prover fallback-forsok per modell hvis forste forsok gir tom respons:
       - uten `aspectRatio`
       - med `1K` fallback-opplosning
@@ -126,6 +134,8 @@ Appen er klar for Railway med standard Node deploy:
 - Sett disse variablene i Railway:
   - `GOOGLE_API_KEY`
   - `OPENAI_API_KEY`
+  - `BFL_API_KEY`
+  - `BFL_API_BASE_URL`, `BFL_POLL_INTERVAL_MS` og `BFL_POLL_TIMEOUT_SECONDS` (valgfritt)
   - `BASIC_AUTH_USERNAME` (anbefalt) eller `USERNAME`
   - `BASIC_AUTH_PASSWORD` (anbefalt) eller `PASSWORD`
   - `AUTH_SESSION_SECRET` (anbefalt)
