@@ -102,6 +102,32 @@
             color: #666;
             font-weight: 400;
         }
+        .size-mode-description {
+            display: block;
+            margin-top: 6px;
+            color: #666;
+            font-size: 13px;
+            line-height: 1.4;
+        }
+        .exact-size-grid {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 12px;
+            margin-top: 12px;
+        }
+        .exact-size-grid input {
+            width: 100%;
+            padding: 15px;
+            border: 2px solid rgba(221, 221, 221, 0.5);
+            border-radius: 10px;
+            box-sizing: border-box;
+            background: rgba(255, 255, 255, 0.8);
+        }
+        .exact-size-grid input:focus {
+            outline: none;
+            border-color: #0f766e;
+            box-shadow: 0 0 0 3px rgba(15, 118, 110, 0.12);
+        }
         label {
             display: block;
             margin-bottom: 5px;
@@ -372,6 +398,9 @@
             .app-container {
                 padding: 20px;
             }
+            .exact-size-grid {
+                grid-template-columns: 1fr;
+            }
             .grounding-metadata {
                 padding: 15px;
                 margin-top: 15px;
@@ -448,14 +477,14 @@
     <div class="app-container">
         <div class="header">
             <div class="brand-mark" aria-hidden="true">IS</div>
-            <h1 class="main-title">Nano Banana Studio</h1>
-            <div class="subtitle">Gemini Image Model Sammenligning</div>
+            <h1 class="main-title">AI bildegenerator</h1>
+            <div class="subtitle">Nano Banana Studio</div>
         </div>
         
         <div class="model-info">
-            <h3>Profesjonell AI-bildegenerator</h3>
+            <h3>Profesjonell AI bildegenerator</h3>
             <p class="model-description">
-                Generer bilder med Gemini 3.1 Flash Image Preview og Gemini 3 Pro Image Preview. Du kan velge en modell, eller begge samtidig for side-ved-side sammenligning med samme prompt og referansebilder.
+                Beskriv bildet du ønsker, last eventuelt opp referansebilder, og la appen lage ferdige bildeforslag. Velg én modell for vanlig bruk, eller huk av flere hvis du vil sammenligne resultatene side om side.
             </p>
            
         </div>
@@ -470,23 +499,52 @@
                 <label>Modellvalg:</label>
                 <div class="model-select-grid">
                     <label class="model-option">
-                        <input type="checkbox" name="models" value="gemini-3.1-flash-image-preview" checked>
+                        <input type="checkbox" name="models" value="gemini-3.1-flash-image-preview">
                         <span>
                             <strong>Gemini 3.1 Flash Image Preview</strong>
-                            <small>Anbefalt som standard for rask generering.</small>
+                            <small>Raskt valg for ideer, utkast og flere varianter når du vil prøve deg frem.</small>
                         </span>
                     </label>
                     <label class="model-option">
-                        <input type="checkbox" name="models" value="gemini-3-pro-image-preview">
+                        <input type="checkbox" name="models" value="gemini-3-pro-image-preview" checked>
                         <span>
                             <strong>Gemini 3 Pro Image Preview</strong>
-                            <small>Kan velges sammen med 3.1 Flash for direkte sammenligning.</small>
+                            <small>Standardvalget. Bruk denne når kvalitet, detaljer og et mer gjennomarbeidet uttrykk er viktigst.</small>
+                        </span>
+                    </label>
+                    <label class="model-option">
+                        <input type="checkbox" name="models" value="gpt-image-2">
+                        <span>
+                            <strong>GPT Image 2</strong>
+                            <small>Best når du trenger en helt bestemt bildestørrelse i piksler, eller vil sammenligne OpenAI med Gemini.</small>
                         </span>
                     </label>
                 </div>
             </div>
 
-            <div class="form-group">
+            <div class="form-group" id="openaiSizeControls" style="display: none;">
+                <label for="openaiSizeMode">GPT Image 2-størrelse:</label>
+                <select id="openaiSizeMode">
+                    <option value="aspect" selected>Bruk aspektforhold og oppløsning</option>
+                    <option value="auto">Auto</option>
+                    <option value="exact">Eksakt pixelstørrelse</option>
+                </select>
+                <small class="size-mode-description">
+                    Eksakt pixelstørrelse er bare tilgjengelig når GPT Image 2 er eneste valgte modell. Ved sammenligning brukes felles aspektforhold og oppløsning.
+                </small>
+                <div id="openaiExactSizeFields" class="exact-size-grid" style="display: none;">
+                    <div>
+                        <label for="openaiWidth">Bredde (px):</label>
+                        <input id="openaiWidth" type="number" min="16" max="3840" step="16" value="1024" inputmode="numeric">
+                    </div>
+                    <div>
+                        <label for="openaiHeight">Høyde (px):</label>
+                        <input id="openaiHeight" type="number" min="16" max="3840" step="16" value="1024" inputmode="numeric">
+                    </div>
+                </div>
+            </div>
+
+            <div class="form-group" id="aspectRatioGroup">
                 <label for="aspectRatio">Aspektforhold:</label>
                 <select id="aspectRatio">
                     <option value="1:1">1:1 (Kvadrat)</option>
@@ -502,7 +560,7 @@
                 </select>
             </div>
 
-            <div class="form-group">
+            <div class="form-group" id="resolutionGroup">
                 <label for="resolution">Oppløsning:</label>
                 <select id="resolution">
                     <option value="1K">1K</option>
@@ -514,7 +572,7 @@
             <div class="form-group">
                 <label for="images">Referansebilder (valgfritt, maks 14):</label>
                 <input type="file" id="images" accept="image/*" multiple>
-                <small style="color: #666;">Last opp inntil 14 bilder som referanse. Inntil 6 bilder av objekter og inntil 5 bilder av mennesker for karakterkonsistens.</small>
+                <small id="imageHelpText" style="color: #666;">Last opp inntil 14 bilder som referanse. Gemini har 7 MB maks per fil; GPT Image 2 bruker referansebilder via OpenAI sitt edits-endepunkt.</small>
                 <div id="imageCounter" style="margin-top: 10px; font-weight: bold; color: #0f4c81;"></div>
                 <div id="imagePreview" class="image-preview"></div>
             </div>
@@ -683,13 +741,96 @@
             return html;
         }
 
+        const GPT_IMAGE_2_MODEL = 'gpt-image-2';
+        const OPENAI_MIN_IMAGE_PIXELS = 655360;
+        const OPENAI_MAX_IMAGE_PIXELS = 8294400;
+        const OPENAI_MAX_IMAGE_EDGE = 3840;
+        const OPENAI_SIZE_MULTIPLE = 16;
+        const OPENAI_MAX_IMAGE_RATIO = 3;
+
+        function getSelectedModels() {
+            return Array.from(document.querySelectorAll('input[name="models"]:checked')).map(input => input.value);
+        }
+
+        function isOnlyGptImage2Selected() {
+            const selectedModels = getSelectedModels();
+            return selectedModels.length === 1 && selectedModels[0] === GPT_IMAGE_2_MODEL;
+        }
+
+        function validateExactOpenAIImageSize(widthValue, heightValue) {
+            const width = Number(widthValue);
+            const height = Number(heightValue);
+
+            if (!Number.isInteger(width) || !Number.isInteger(height)) {
+                return 'Oppgi gyldig bredde og høyde.';
+            }
+            if (width <= 0 || height <= 0) {
+                return 'Bredde og høyde må være større enn 0 px.';
+            }
+            if (width > OPENAI_MAX_IMAGE_EDGE || height > OPENAI_MAX_IMAGE_EDGE) {
+                return `GPT Image 2 tillater maks ${OPENAI_MAX_IMAGE_EDGE}px på lengste kant.`;
+            }
+            if (width % OPENAI_SIZE_MULTIPLE !== 0 || height % OPENAI_SIZE_MULTIPLE !== 0) {
+                return `Bredde og høyde må være delelige med ${OPENAI_SIZE_MULTIPLE}.`;
+            }
+
+            const longEdge = Math.max(width, height);
+            const shortEdge = Math.min(width, height);
+            if (longEdge / shortEdge > OPENAI_MAX_IMAGE_RATIO) {
+                return `Forholdet mellom lengste og korteste kant kan være maks ${OPENAI_MAX_IMAGE_RATIO}:1.`;
+            }
+
+            const totalPixels = width * height;
+            if (totalPixels < OPENAI_MIN_IMAGE_PIXELS || totalPixels > OPENAI_MAX_IMAGE_PIXELS) {
+                return `Bildet må ha mellom ${OPENAI_MIN_IMAGE_PIXELS.toLocaleString('nb-NO')} og ${OPENAI_MAX_IMAGE_PIXELS.toLocaleString('nb-NO')} pixler totalt.`;
+            }
+
+            return '';
+        }
+
+        function updateSizeControls() {
+            const onlyGptImage2 = isOnlyGptImage2Selected();
+            const selectedModels = getSelectedModels();
+            const hasGptImage2 = selectedModels.includes(GPT_IMAGE_2_MODEL);
+            const hasGemini = selectedModels.some((model) => model !== GPT_IMAGE_2_MODEL);
+            const sizeMode = document.getElementById('openaiSizeMode').value;
+            const showSharedSizeControls = !onlyGptImage2 || sizeMode === 'aspect';
+            const showExactSizeFields = onlyGptImage2 && sizeMode === 'exact';
+            const openaiWidthInput = document.getElementById('openaiWidth');
+            const openaiHeightInput = document.getElementById('openaiHeight');
+
+            document.getElementById('openaiSizeControls').style.display = onlyGptImage2 ? 'block' : 'none';
+            document.getElementById('openaiExactSizeFields').style.display = showExactSizeFields ? 'grid' : 'none';
+            document.getElementById('aspectRatioGroup').style.display = showSharedSizeControls ? 'block' : 'none';
+            document.getElementById('resolutionGroup').style.display = showSharedSizeControls ? 'block' : 'none';
+            openaiWidthInput.disabled = !showExactSizeFields;
+            openaiHeightInput.disabled = !showExactSizeFields;
+
+            if (hasGptImage2 && hasGemini) {
+                document.getElementById('imageHelpText').textContent = 'Last opp inntil 14 bilder som referanse. Ved sammenligning ma bildene fungere for begge providere; Gemini har 7 MB maks per fil.';
+            } else if (onlyGptImage2) {
+                document.getElementById('imageHelpText').textContent = 'Last opp inntil 14 bilder som referanse. GPT Image 2 bruker referansebilder via OpenAI sitt edits-endepunkt og behandler bildeinput med hoy fidelity.';
+            } else {
+                document.getElementById('imageHelpText').textContent = 'Last opp inntil 14 bilder som referanse. Gemini inline-opplasting har 7 MB maks per fil.';
+            }
+        }
+
+        document.querySelectorAll('input[name="models"]').forEach((input) => {
+            input.addEventListener('change', updateSizeControls);
+        });
+        document.getElementById('openaiSizeMode').addEventListener('change', updateSizeControls);
+        updateSizeControls();
+
         document.getElementById('generateForm').addEventListener('submit', async function(e) {
             e.preventDefault();
 
             const prompt = document.getElementById('prompt').value;
             const aspectRatio = document.getElementById('aspectRatio').value;
             const resolution = document.getElementById('resolution').value;
-            const selectedModels = Array.from(document.querySelectorAll('input[name="models"]:checked')).map(input => input.value);
+            const openaiSizeMode = document.getElementById('openaiSizeMode').value;
+            const openaiWidth = document.getElementById('openaiWidth').value;
+            const openaiHeight = document.getElementById('openaiHeight').value;
+            const selectedModels = getSelectedModels();
             const resultDiv = document.getElementById('result');
             const loadingDiv = document.getElementById('loading');
 
@@ -701,6 +842,13 @@
                 alert('Velg minst en modell.');
                 return;
             }
+            if (isOnlyGptImage2Selected() && openaiSizeMode === 'exact') {
+                const exactSizeError = validateExactOpenAIImageSize(openaiWidth, openaiHeight);
+                if (exactSizeError) {
+                    alert(exactSizeError);
+                    return;
+                }
+            }
 
             resultDiv.style.display = 'none';
             loadingDiv.style.display = 'block';
@@ -709,6 +857,9 @@
             formData.append('prompt', prompt);
             formData.append('aspectRatio', aspectRatio);
             formData.append('resolution', resolution);
+            formData.append('openaiSizeMode', openaiSizeMode);
+            formData.append('openaiWidth', openaiWidth);
+            formData.append('openaiHeight', openaiHeight);
             selectedModels.forEach((model) => formData.append('models', model));
 
             for (let i = 0; i < selectedFiles.length; i++) {

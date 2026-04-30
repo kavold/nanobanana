@@ -176,7 +176,7 @@ function secondsUntilNextUtcDay(nowMs) {
   return Math.max(1, Math.ceil((nextDayMs - nowMs) / 1000));
 }
 
-function consumeGenerateBudget() {
+function consumeGenerateBudget(requestCount = 1) {
   if (GENERATE_MAX_PER_HOUR <= 0 && GENERATE_MAX_PER_DAY <= 0) {
     return { allowed: true };
   }
@@ -195,7 +195,7 @@ function consumeGenerateBudget() {
     generateBudgetState.dayCount = 0;
   }
 
-  if (GENERATE_MAX_PER_HOUR > 0 && generateBudgetState.hourCount >= GENERATE_MAX_PER_HOUR) {
+  if (GENERATE_MAX_PER_HOUR > 0 && generateBudgetState.hourCount + requestCount > GENERATE_MAX_PER_HOUR) {
     return {
       allowed: false,
       error: 'Timekvoten for bildegenerering er brukt opp. Prov igjen neste time.',
@@ -203,7 +203,7 @@ function consumeGenerateBudget() {
     };
   }
 
-  if (GENERATE_MAX_PER_DAY > 0 && generateBudgetState.dayCount >= GENERATE_MAX_PER_DAY) {
+  if (GENERATE_MAX_PER_DAY > 0 && generateBudgetState.dayCount + requestCount > GENERATE_MAX_PER_DAY) {
     return {
       allowed: false,
       error: 'Dognkvoten for bildegenerering er brukt opp. Prov igjen i morgen.',
@@ -211,8 +211,8 @@ function consumeGenerateBudget() {
     };
   }
 
-  generateBudgetState.hourCount += 1;
-  generateBudgetState.dayCount += 1;
+  generateBudgetState.hourCount += requestCount;
+  generateBudgetState.dayCount += requestCount;
   return { allowed: true };
 }
 
@@ -440,21 +440,38 @@ const upload = multer({
 });
 
 const genAI = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY);
+const OPENAI_API_KEY = readEnv('OPENAI_API_KEY');
+const OPENAI_API_BASE_URL = readEnv('OPENAI_API_BASE_URL') || 'https://api.openai.com/v1';
 
 const IMAGE_MODEL_CONFIGS = {
   'gemini-3.1-flash-image-preview': {
     label: 'Gemini 3.1 Flash Image Preview',
+    provider: 'google',
     supportsAspectRatio: true,
     supportsGoogleSearch: false
   },
   'gemini-3-pro-image-preview': {
     label: 'Gemini 3 Pro Image Preview',
+    provider: 'google',
     supportsAspectRatio: true,
     supportsGoogleSearch: false
+  },
+  'gpt-image-2': {
+    label: 'GPT Image 2',
+    provider: 'openai',
+    supportsAspectRatio: true,
+    supportsGoogleSearch: false,
+    supportsExactSize: true
   }
 };
 const DEFAULT_IMAGE_MODEL = 'gemini-3.1-flash-image-preview';
 const MAX_INLINE_IMAGE_BYTES = 7 * 1024 * 1024;
+const OPENAI_MIN_IMAGE_PIXELS = 655360;
+const OPENAI_MAX_IMAGE_PIXELS = 8294400;
+const OPENAI_MAX_IMAGE_EDGE = 3840;
+const OPENAI_MAX_IMAGE_RATIO = 3;
+const OPENAI_SIZE_MULTIPLE = 16;
+const OPENAI_DEFAULT_SIZE_MODE = 'aspect';
 const RELAXED_SAFETY_SETTINGS = [
   { category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_ONLY_HIGH' },
   { category: 'HARM_CATEGORY_HATE_SPEECH', threshold: 'BLOCK_ONLY_HIGH' },
@@ -470,6 +487,18 @@ function normalizeSelectedModels(rawModels) {
   const fallbackModels = requested.length > 0 ? requested : [DEFAULT_IMAGE_MODEL];
   const uniqueModels = [...new Set(fallbackModels)];
   return uniqueModels.filter((model) => IMAGE_MODEL_CONFIGS[model]);
+}
+
+function getModelProvider(modelId) {
+  return IMAGE_MODEL_CONFIGS[modelId] && IMAGE_MODEL_CONFIGS[modelId].provider;
+}
+
+function selectedModelsIncludeProvider(selectedModels, provider) {
+  return selectedModels.some((modelId) => getModelProvider(modelId) === provider);
+}
+
+function onlySelectedProvider(selectedModels, provider) {
+  return selectedModels.length === 1 && getModelProvider(selectedModels[0]) === provider;
 }
 
 function summarizeResponseForDebug(response) {
@@ -493,8 +522,12 @@ function summarizeResponseForDebug(response) {
   return segments.length > 0 ? segments.join(', ') : 'No extra metadata';
 }
 
-function validateInlineInputFiles(files) {
+function validateInlineInputFiles(files, selectedModels) {
   if (!files || !Array.isArray(files) || files.length === 0) {
+    return null;
+  }
+
+  if (!selectedModelsIncludeProvider(selectedModels, 'google')) {
     return null;
   }
 
@@ -507,6 +540,134 @@ function validateInlineInputFiles(files) {
   }
 
   return null;
+}
+
+function parseAspectRatio(aspectRatio) {
+  const [rawWidth, rawHeight] = String(aspectRatio || '16:9').split(':');
+  const width = Number.parseFloat(rawWidth);
+  const height = Number.parseFloat(rawHeight);
+  if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
+    return { width: 16, height: 9 };
+  }
+  return { width, height };
+}
+
+function isValidOpenAIImageSize(width, height) {
+  if (!Number.isInteger(width) || !Number.isInteger(height)) {
+    return false;
+  }
+  if (width <= 0 || height <= 0) {
+    return false;
+  }
+  if (width > OPENAI_MAX_IMAGE_EDGE || height > OPENAI_MAX_IMAGE_EDGE) {
+    return false;
+  }
+  if (width % OPENAI_SIZE_MULTIPLE !== 0 || height % OPENAI_SIZE_MULTIPLE !== 0) {
+    return false;
+  }
+  const longEdge = Math.max(width, height);
+  const shortEdge = Math.min(width, height);
+  if (longEdge / shortEdge > OPENAI_MAX_IMAGE_RATIO) {
+    return false;
+  }
+  const totalPixels = width * height;
+  return totalPixels >= OPENAI_MIN_IMAGE_PIXELS && totalPixels <= OPENAI_MAX_IMAGE_PIXELS;
+}
+
+function nearestValidOpenAIImageSize(desiredWidth, desiredHeight) {
+  const desiredRatio = desiredWidth / desiredHeight;
+  let best = null;
+
+  for (let width = OPENAI_SIZE_MULTIPLE; width <= OPENAI_MAX_IMAGE_EDGE; width += OPENAI_SIZE_MULTIPLE) {
+    for (let height = OPENAI_SIZE_MULTIPLE; height <= OPENAI_MAX_IMAGE_EDGE; height += OPENAI_SIZE_MULTIPLE) {
+      if (!isValidOpenAIImageSize(width, height)) {
+        continue;
+      }
+
+      const ratioScore = Math.abs(Math.log((width / height) / desiredRatio)) * 4;
+      const widthScore = Math.abs(Math.log(width / desiredWidth));
+      const heightScore = Math.abs(Math.log(height / desiredHeight));
+      const score = ratioScore + widthScore + heightScore;
+
+      if (!best || score < best.score) {
+        best = { width, height, score };
+      }
+    }
+  }
+
+  if (!best) {
+    throw new Error('Klarte ikke finne en gyldig GPT Image 2-storrelse for valgt aspektforhold.');
+  }
+
+  return `${best.width}x${best.height}`;
+}
+
+function mapComparisonSizeToOpenAI(aspectRatio, resolution) {
+  const { width: ratioWidth, height: ratioHeight } = parseAspectRatio(aspectRatio);
+  const ratio = ratioWidth / ratioHeight;
+  const longEdgeByResolution = {
+    '1K': 1024,
+    '2K': 2048,
+    '4K': 3840
+  };
+  const longEdge = longEdgeByResolution[resolution] || longEdgeByResolution['2K'];
+  const desiredWidth = ratio >= 1 ? longEdge : longEdge * ratio;
+  const desiredHeight = ratio >= 1 ? longEdge / ratio : longEdge;
+  return nearestValidOpenAIImageSize(desiredWidth, desiredHeight);
+}
+
+function validateExactOpenAIImageSize(widthValue, heightValue) {
+  const width = Number(widthValue);
+  const height = Number(heightValue);
+
+  if (!Number.isInteger(width) || !Number.isInteger(height)) {
+    throw new Error('Eksakt GPT Image 2-storrelse ma ha gyldig bredde og hoyde.');
+  }
+  if (width <= 0 || height <= 0) {
+    throw new Error('Eksakt GPT Image 2-storrelse ma vaere storre enn 0 px.');
+  }
+  if (width > OPENAI_MAX_IMAGE_EDGE || height > OPENAI_MAX_IMAGE_EDGE) {
+    throw new Error(`GPT Image 2 tillater maks ${OPENAI_MAX_IMAGE_EDGE}px pa lengste kant.`);
+  }
+  if (width % OPENAI_SIZE_MULTIPLE !== 0 || height % OPENAI_SIZE_MULTIPLE !== 0) {
+    throw new Error(`GPT Image 2 krever at bredde og hoyde er delelige med ${OPENAI_SIZE_MULTIPLE}.`);
+  }
+
+  const longEdge = Math.max(width, height);
+  const shortEdge = Math.min(width, height);
+  if (longEdge / shortEdge > OPENAI_MAX_IMAGE_RATIO) {
+    throw new Error(`GPT Image 2 tillater maks ${OPENAI_MAX_IMAGE_RATIO}:1 forhold mellom lengste og korteste kant.`);
+  }
+
+  const totalPixels = width * height;
+  if (totalPixels < OPENAI_MIN_IMAGE_PIXELS || totalPixels > OPENAI_MAX_IMAGE_PIXELS) {
+    throw new Error(`GPT Image 2 krever mellom ${OPENAI_MIN_IMAGE_PIXELS.toLocaleString('nb-NO')} og ${OPENAI_MAX_IMAGE_PIXELS.toLocaleString('nb-NO')} pixler totalt.`);
+  }
+
+  return `${width}x${height}`;
+}
+
+function resolveOpenAIImageSize({ selectedModels, aspectRatio, resolution, openaiSizeMode, openaiWidth, openaiHeight }) {
+  const canUseOpenAIFlexibleSize = onlySelectedProvider(selectedModels, 'openai');
+  const normalizedSizeMode = typeof openaiSizeMode === 'string' && openaiSizeMode.trim() !== ''
+    ? openaiSizeMode.trim()
+    : OPENAI_DEFAULT_SIZE_MODE;
+
+  if (canUseOpenAIFlexibleSize && normalizedSizeMode === 'auto') {
+    return { size: 'auto', mode: 'auto' };
+  }
+
+  if (canUseOpenAIFlexibleSize && normalizedSizeMode === 'exact') {
+    return {
+      size: validateExactOpenAIImageSize(openaiWidth, openaiHeight),
+      mode: 'exact'
+    };
+  }
+
+  return {
+    size: mapComparisonSizeToOpenAI(aspectRatio, resolution),
+    mode: 'aspect'
+  };
 }
 
 function buildAttemptPlan(resolution, includeAspectRatio) {
@@ -591,6 +752,282 @@ function saveInlineImage(base64Data, modelId) {
   return `/generated/${filename}`;
 }
 
+function createImageModelResult(modelId, modelConfigMeta) {
+  return {
+    model: modelId,
+    label: modelConfigMeta.label,
+    text: null,
+    image: null,
+    groundingMetadata: null,
+    error: null,
+    debug: {
+      attempts: []
+    }
+  };
+}
+
+function getOpenAIErrorMessage(status, responseData, responseText) {
+  if (responseData && responseData.error && responseData.error.message) {
+    return responseData.error.message;
+  }
+  if (responseData && responseData.error && typeof responseData.error === 'string') {
+    return responseData.error;
+  }
+  if (responseText && responseText.trim()) {
+    return responseText.trim().slice(0, 500);
+  }
+  return `OpenAI API returnerte status ${status}.`;
+}
+
+async function requestOpenAIImages(pathname, { jsonBody, formData }) {
+  if (!OPENAI_API_KEY) {
+    throw new Error('OPENAI_API_KEY mangler. Sett miljovariabelen for a bruke GPT Image 2.');
+  }
+
+  const headers = {
+    Authorization: `Bearer ${OPENAI_API_KEY}`
+  };
+  const requestOptions = {
+    method: 'POST',
+    headers
+  };
+
+  if (jsonBody) {
+    headers['Content-Type'] = 'application/json';
+    requestOptions.body = JSON.stringify(jsonBody);
+  } else {
+    requestOptions.body = formData;
+  }
+
+  const baseUrl = OPENAI_API_BASE_URL.replace(/\/+$/, '');
+  const response = await fetch(`${baseUrl}${pathname}`, requestOptions);
+  const responseText = await response.text();
+  let responseData = null;
+
+  if (responseText) {
+    try {
+      responseData = JSON.parse(responseText);
+    } catch (_error) {
+      responseData = null;
+    }
+  }
+
+  if (!response.ok) {
+    throw new Error(getOpenAIErrorMessage(response.status, responseData, responseText));
+  }
+
+  if (!responseData || !Array.isArray(responseData.data) || !responseData.data[0] || !responseData.data[0].b64_json) {
+    throw new Error('OpenAI returnerte ikke et base64-bilde.');
+  }
+
+  return responseData;
+}
+
+async function generateWithOpenAIImageModel(modelId, modelConfigMeta, requestContext) {
+  const modelResult = createImageModelResult(modelId, modelConfigMeta);
+  try {
+    const { prompt, files, selectedModels, aspectRatio, resolution, openaiSizeMode, openaiWidth, openaiHeight } = requestContext;
+    const resolvedSize = resolveOpenAIImageSize({
+      selectedModels,
+      aspectRatio,
+      resolution,
+      openaiSizeMode,
+      openaiWidth,
+      openaiHeight
+    });
+
+    modelResult.debug.attempts.push({
+      label: 'requested',
+      size: resolvedSize.size,
+      sizeMode: resolvedSize.mode
+    });
+
+    const hasInputImages = files && files.length > 0;
+    const responseData = hasInputImages
+      ? await generateOpenAIImageEdit(modelId, prompt, files, resolvedSize.size)
+      : await generateOpenAIImage(modelId, prompt, resolvedSize.size);
+
+    modelResult.image = saveInlineImage(responseData.data[0].b64_json, modelId);
+    if (responseData.data[0].revised_prompt) {
+      modelResult.text = responseData.data[0].revised_prompt;
+    }
+    if (responseData.usage) {
+      modelResult.debug.usage = responseData.usage;
+    }
+  } catch (error) {
+    const message = error && error.message ? error.message : 'Ukjent OpenAI-feil';
+    console.error(`Error from model ${modelId}:`, error);
+    modelResult.error = message;
+    if (modelResult.debug.attempts.length === 0) {
+      modelResult.debug.attempts.push({
+        label: 'requested',
+        summary: `exception=${message}`
+      });
+    } else {
+      modelResult.debug.attempts[modelResult.debug.attempts.length - 1].summary = `exception=${message}`;
+    }
+  }
+
+  return modelResult;
+}
+
+async function generateOpenAIImage(modelId, prompt, size) {
+  const payload = {
+    model: modelId,
+    prompt,
+    size
+  };
+
+  return requestOpenAIImages('/images/generations', { jsonBody: payload });
+}
+
+async function generateOpenAIImageEdit(modelId, prompt, files, size) {
+  const formData = new FormData();
+  formData.append('model', modelId);
+  formData.append('prompt', prompt);
+  formData.append('size', size);
+
+  for (const file of files) {
+    const imageBlob = new Blob([fs.readFileSync(file.path)], { type: file.mimetype });
+    formData.append('image[]', imageBlob, file.originalname || file.filename || 'image.png');
+  }
+
+  return requestOpenAIImages('/images/edits', { formData });
+}
+
+async function generateWithGeminiImageModel(modelId, modelConfigMeta, requestContext) {
+  const { parts, aspectRatio, resolution, useGoogleSearch } = requestContext;
+  const modelResult = createImageModelResult(modelId, modelConfigMeta);
+  const attemptPlan = buildAttemptPlan(
+    resolution,
+    Boolean(modelConfigMeta.supportsAspectRatio && aspectRatio)
+  );
+  let modelSucceeded = false;
+
+  for (const attempt of attemptPlan) {
+    const generationConfig = {
+      temperature: 0.7,
+      maxOutputTokens: 2048,
+      imageConfig: {
+        imageSize: attempt.resolution
+      }
+    };
+
+    if (attempt.includeAspectRatio) {
+      generationConfig.imageConfig.aspectRatio = aspectRatio;
+    }
+
+    const modelConfig = {
+      model: modelId,
+      generationConfig
+    };
+
+    if (useGoogleSearch === 'true' && modelConfigMeta.supportsGoogleSearch) {
+      modelConfig.tools = [{ google_search: {} }];
+    }
+
+    if (attempt.safetyMode === 'relaxed') {
+      modelConfig.safetySettings = RELAXED_SAFETY_SETTINGS;
+    }
+
+    try {
+      console.log(`Calling model: ${modelId} (attempt=${attempt.label}, resolution=${attempt.resolution}, aspectRatio=${attempt.includeAspectRatio ? aspectRatio : 'none'}, safety=${attempt.safetyMode})`);
+      const model = genAI.getGenerativeModel(modelConfig);
+      const result = await model.generateContent(parts);
+      const response = await result.response;
+      const candidates = response.candidates || [];
+      const debugSummary = summarizeResponseForDebug(response);
+      modelResult.debug.attempts.push({
+        label: attempt.label,
+        resolution: attempt.resolution,
+        aspectRatio: attempt.includeAspectRatio ? aspectRatio : null,
+        safetyMode: attempt.safetyMode,
+        summary: debugSummary
+      });
+
+      if (candidates.length === 0) {
+        modelResult.error = `Ingen kandidater returnert fra modellen (${debugSummary}).`;
+        continue;
+      }
+
+      const content = candidates[0].content;
+      if (!content || !content.parts || content.parts.length === 0) {
+        modelResult.error = `Tom respons fra modellen (${debugSummary}).`;
+        continue;
+      }
+
+      for (const part of content.parts) {
+        if (part.text) {
+          modelResult.text = `${modelResult.text || ''}${part.text}`;
+        } else if (part.inlineData && part.inlineData.data) {
+          modelResult.image = saveInlineImage(part.inlineData.data, modelId);
+        }
+      }
+
+      if (candidates[0].groundingMetadata) {
+        modelResult.groundingMetadata = {
+          searchEntryPoint: candidates[0].groundingMetadata.searchEntryPoint || null,
+          groundingChunks: candidates[0].groundingMetadata.groundingChunks || null,
+          webSearchQueries: candidates[0].groundingMetadata.webSearchQueries || null
+        };
+      }
+
+      if (!modelResult.text && !modelResult.image) {
+        modelResult.error = `Modellen returnerte ingen brukbar tekst eller bilde (${debugSummary}).`;
+        continue;
+      }
+
+      modelResult.error = null;
+      modelSucceeded = true;
+      break;
+    } catch (modelError) {
+      console.error(`Error from model ${modelId} attempt ${attempt.label}:`, modelError);
+      const message = modelError && modelError.message
+        ? modelError.message
+        : 'Ukjent modellfeil';
+      modelResult.debug.attempts.push({
+        label: attempt.label,
+        resolution: attempt.resolution,
+        aspectRatio: attempt.includeAspectRatio ? aspectRatio : null,
+        safetyMode: attempt.safetyMode,
+        summary: `exception=${message}`
+      });
+      modelResult.error = message;
+
+      // Retry only for model-content issues; invalid API key/quota should fail fast.
+      if (message.includes('API_KEY') || message.includes('quota') || message.includes('QUOTA_EXCEEDED')) {
+        break;
+      }
+    }
+  }
+
+  if (!modelSucceeded && modelResult.error && modelResult.debug.attempts.length > 0) {
+    modelResult.error = `${modelResult.error} (forsok: ${modelResult.debug.attempts.length})`;
+  }
+
+  return modelResult;
+}
+
+async function generateWithSelectedImageModel(modelId, requestContext) {
+  const modelConfigMeta = IMAGE_MODEL_CONFIGS[modelId];
+  if (modelConfigMeta.provider === 'openai') {
+    return generateWithOpenAIImageModel(modelId, modelConfigMeta, requestContext);
+  }
+  return generateWithGeminiImageModel(modelId, modelConfigMeta, requestContext);
+}
+
+function createUnhandledModelErrorResult(modelId, error) {
+  const modelConfigMeta = IMAGE_MODEL_CONFIGS[modelId] || { label: modelId || 'Modell' };
+  const message = error && error.message ? error.message : 'Ukjent modellfeil';
+  const modelResult = createImageModelResult(modelId, modelConfigMeta);
+  modelResult.error = message;
+  modelResult.debug.attempts.push({
+    label: 'unhandled',
+    summary: `exception=${message}`
+  });
+  return modelResult;
+}
+
 function cleanupUploadedFiles(files) {
   if (!files || !Array.isArray(files)) {
     return;
@@ -609,29 +1046,51 @@ app.post('/generate', generateIpRateLimiter, generateUserRateLimiter, upload.arr
       prompt,
       aspectRatio = '16:9',
       resolution = '2K',
+      openaiSizeMode = OPENAI_DEFAULT_SIZE_MODE,
+      openaiWidth,
+      openaiHeight,
       useGoogleSearch,
       models
     } = req.body;
 
     if (!prompt) {
-      return res.status(400).json({ error: 'Prompt is required' });
-    }
-
-    const fileValidationError = validateInlineInputFiles(req.files);
-    if (fileValidationError) {
       cleanupUploadedFiles(req.files);
-      return res.status(400).json({ error: fileValidationError });
+      return res.status(400).json({ error: 'Prompt is required' });
     }
 
     const selectedModels = normalizeSelectedModels(models);
     if (selectedModels.length === 0) {
+      cleanupUploadedFiles(req.files);
       return res.status(400).json({
         error: `Ingen gyldige modeller valgt. Tillatte modeller: ${Object.keys(IMAGE_MODEL_CONFIGS).join(', ')}`
       });
     }
 
-    const budgetResult = consumeGenerateBudget();
+    const fileValidationError = validateInlineInputFiles(req.files, selectedModels);
+    if (fileValidationError) {
+      cleanupUploadedFiles(req.files);
+      return res.status(400).json({ error: fileValidationError });
+    }
+
+    if (selectedModelsIncludeProvider(selectedModels, 'openai')) {
+      try {
+        resolveOpenAIImageSize({
+          selectedModels,
+          aspectRatio,
+          resolution,
+          openaiSizeMode,
+          openaiWidth,
+          openaiHeight
+        });
+      } catch (sizeError) {
+        cleanupUploadedFiles(req.files);
+        return res.status(400).json({ error: sizeError.message });
+      }
+    }
+
+    const budgetResult = consumeGenerateBudget(selectedModels.length);
     if (!budgetResult.allowed) {
+      cleanupUploadedFiles(req.files);
       res.setHeader('Retry-After', String(budgetResult.retryAfterSeconds));
       return res.status(429).json({ error: budgetResult.error });
     }
@@ -642,142 +1101,38 @@ app.post('/generate', generateIpRateLimiter, generateUserRateLimiter, upload.arr
     // Keep user prompt unchanged to avoid introducing extra policy-sensitive phrasing.
     parts.push(prompt);
     
-    // Add images after the prompt
-    if (req.files && req.files.length > 0) {
+    // Add images after the prompt for Gemini. OpenAI reads the uploaded files directly in its provider adapter.
+    if (selectedModelsIncludeProvider(selectedModels, 'google') && req.files && req.files.length > 0) {
       for (const file of req.files) {
         const imagePart = fileToGenerativePart(file.path, file.mimetype);
         parts.push(imagePart);
       }
     }
 
-    console.log('Sending request to Gemini with prompt:', parts[0]);
+    console.log('Sending image generation request with prompt:', parts[0]);
     console.log('Number of input images:', req.files ? req.files.length : 0);
     console.log('Total parts in request:', parts.length);
 
-    const modelResults = [];
-    for (const selectedModel of selectedModels) {
-      const modelConfigMeta = IMAGE_MODEL_CONFIGS[selectedModel];
-      const modelResult = {
-        model: selectedModel,
-        label: modelConfigMeta.label,
-        text: null,
-        image: null,
-        groundingMetadata: null,
-        error: null,
-        debug: {
-          attempts: []
-        }
-      };
-
-      const attemptPlan = buildAttemptPlan(
-        resolution,
-        Boolean(modelConfigMeta.supportsAspectRatio && aspectRatio)
-      );
-      let modelSucceeded = false;
-
-      for (const attempt of attemptPlan) {
-        const generationConfig = {
-          temperature: 0.7,
-          maxOutputTokens: 2048,
-          imageConfig: {
-            imageSize: attempt.resolution
-          }
-        };
-
-        if (attempt.includeAspectRatio) {
-          generationConfig.imageConfig.aspectRatio = aspectRatio;
-        }
-
-        const modelConfig = {
-          model: selectedModel,
-          generationConfig
-        };
-
-        if (useGoogleSearch === 'true' && modelConfigMeta.supportsGoogleSearch) {
-          modelConfig.tools = [{ google_search: {} }];
-        }
-
-        if (attempt.safetyMode === 'relaxed') {
-          modelConfig.safetySettings = RELAXED_SAFETY_SETTINGS;
-        }
-
-        try {
-          console.log(`Calling model: ${selectedModel} (attempt=${attempt.label}, resolution=${attempt.resolution}, aspectRatio=${attempt.includeAspectRatio ? aspectRatio : 'none'}, safety=${attempt.safetyMode})`);
-          const model = genAI.getGenerativeModel(modelConfig);
-          const result = await model.generateContent(parts);
-          const response = await result.response;
-          const candidates = response.candidates || [];
-          const debugSummary = summarizeResponseForDebug(response);
-          modelResult.debug.attempts.push({
-            label: attempt.label,
-            resolution: attempt.resolution,
-            aspectRatio: attempt.includeAspectRatio ? aspectRatio : null,
-            safetyMode: attempt.safetyMode,
-            summary: debugSummary
-          });
-
-          if (candidates.length === 0) {
-            modelResult.error = `Ingen kandidater returnert fra modellen (${debugSummary}).`;
-            continue;
-          }
-
-          const content = candidates[0].content;
-          if (!content || !content.parts || content.parts.length === 0) {
-            modelResult.error = `Tom respons fra modellen (${debugSummary}).`;
-            continue;
-          }
-
-          for (const part of content.parts) {
-            if (part.text) {
-              modelResult.text = `${modelResult.text || ''}${part.text}`;
-            } else if (part.inlineData && part.inlineData.data) {
-              modelResult.image = saveInlineImage(part.inlineData.data, selectedModel);
-            }
-          }
-
-          if (candidates[0].groundingMetadata) {
-            modelResult.groundingMetadata = {
-              searchEntryPoint: candidates[0].groundingMetadata.searchEntryPoint || null,
-              groundingChunks: candidates[0].groundingMetadata.groundingChunks || null,
-              webSearchQueries: candidates[0].groundingMetadata.webSearchQueries || null
-            };
-          }
-
-          if (!modelResult.text && !modelResult.image) {
-            modelResult.error = `Modellen returnerte ingen brukbar tekst eller bilde (${debugSummary}).`;
-            continue;
-          }
-
-          modelResult.error = null;
-          modelSucceeded = true;
-          break;
-        } catch (modelError) {
-          console.error(`Error from model ${selectedModel} attempt ${attempt.label}:`, modelError);
-          const message = modelError && modelError.message
-            ? modelError.message
-            : 'Ukjent modellfeil';
-          modelResult.debug.attempts.push({
-            label: attempt.label,
-            resolution: attempt.resolution,
-            aspectRatio: attempt.includeAspectRatio ? aspectRatio : null,
-            safetyMode: attempt.safetyMode,
-            summary: `exception=${message}`
-          });
-          modelResult.error = message;
-
-          // Retry only for model-content issues; invalid API key/quota should fail fast.
-          if (message.includes('API_KEY') || message.includes('quota') || message.includes('QUOTA_EXCEEDED')) {
-            break;
-          }
-        }
+    console.log(`Calling ${selectedModels.length} selected model(s) in parallel: ${selectedModels.join(', ')}`);
+    const modelPromises = selectedModels.map((selectedModel) => generateWithSelectedImageModel(selectedModel, {
+      prompt,
+      files: req.files || [],
+      selectedModels,
+      aspectRatio,
+      resolution,
+      openaiSizeMode,
+      openaiWidth,
+      openaiHeight,
+      useGoogleSearch,
+      parts
+    }));
+    const settledModelResults = await Promise.allSettled(modelPromises);
+    const modelResults = settledModelResults.map((settledResult, index) => {
+      if (settledResult.status === 'fulfilled') {
+        return settledResult.value;
       }
-
-      if (!modelSucceeded && modelResult.error && modelResult.debug.attempts.length > 0) {
-        modelResult.error = `${modelResult.error} (forsok: ${modelResult.debug.attempts.length})`;
-      }
-
-      modelResults.push(modelResult);
-    }
+      return createUnhandledModelErrorResult(selectedModels[index], settledResult.reason);
+    });
 
     cleanupUploadedFiles(req.files);
 

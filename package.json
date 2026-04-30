@@ -1,7 +1,7 @@
 {
   "name": "image-studio",
   "version": "1.0.0",
-  "description": "Image generation and editing with Google Gemini",
+  "description": "Image generation and editing with Google Gemini and GPT Image",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
@@ -28,6 +28,7 @@
     "ai",
     "image-generation",
     "gemini",
+    "gpt-image",
     "google"
   ],
   "author": "",

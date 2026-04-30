@@ -1,16 +1,18 @@
-# Image Studio - Gemini AI-bildegenerator
+# Image Studio - AI-bildegenerator
 
-Node.js/Express-app for bildegenerering og bilderedigering med Gemini.
+Node.js/Express-app for bildegenerering og bilderedigering med Gemini og GPT Image.
 
 ## Funksjoner
 
 - Tekst-til-bilde generering
 - Redigering med opptil 14 referansebilder
 - Valg av aspektforhold og opplosning
+- Eksakt pixelstorrelse for GPT Image 2 nar modellen brukes alene
 - Modellvalg per request:
   - `gemini-3.1-flash-image-preview`
   - `gemini-3-pro-image-preview`
-- Side-ved-side sammenligning ved a velge begge modeller samtidig
+  - `gpt-image-2`
+- Side-ved-side sammenligning ved a velge flere modeller samtidig
 - Nedlasting av genererte bilder fra webgrensesnittet
 
 ## Oppsett lokalt
@@ -26,6 +28,8 @@ Node.js/Express-app for bildegenerering og bilderedigering med Gemini.
 3. Sett verdier i `.env`:
    ```env
    GOOGLE_API_KEY=din_google_api_nokkel
+   OPENAI_API_KEY=din_openai_api_nokkel
+   OPENAI_API_BASE_URL=
    PORT=3001
    NODE_ENV=development
    USERNAME=valgfritt_i_dev
@@ -87,11 +91,22 @@ Alle grenser kan justeres via miljo-variabler i `.env`/Railway.
     - `prompt` (pakrevd)
     - `images` (valgfritt, opptil 14 filer)
       - Merk: Inline-opplasting til Gemini image-modeller har 7 MB maks per fil
+      - Merk: GPT Image 2 bruker OpenAI `/images/edits` nar referansebilder lastes opp. OpenAI stotter ett eller flere referansebilder, men dette er ikke helt samme modellatferd som Gemini.
     - `aspectRatio` (valgfritt, standard `16:9`)
     - `resolution` (valgfritt, standard `2K`)
+    - `openaiSizeMode` (valgfritt, standard `aspect`)
+      - `aspect`: GPT Image 2 mappes til valgt `aspectRatio` + `resolution`
+      - `auto`: kun tilgjengelig nar bare `gpt-image-2` er valgt
+      - `exact`: kun tilgjengelig nar bare `gpt-image-2` er valgt
+    - `openaiWidth` og `openaiHeight` (pakrevd ved `openaiSizeMode=exact`)
+      - Maks kant: `3840px`
+      - Begge kanter ma vaere delelige med `16`
+      - Forhold mellom lengste og korteste kant maks `3:1`
+      - Totalt antall pixler ma vaere mellom `655360` og `8294400`
     - `models` (valgfritt, kan sendes flere ganger for sammenligning)
       - `gemini-3.1-flash-image-preview`
       - `gemini-3-pro-image-preview`
+      - `gpt-image-2`
   - Returnerer:
     - `results[]` med ett resultatobjekt per modell (`model`, `label`, `text`, `image`, `error`)
     - Backend prover fallback-forsok per modell hvis forste forsok gir tom respons:
@@ -110,6 +125,7 @@ Appen er klar for Railway med standard Node deploy:
 - `PORT` leses fra miljoet
 - Sett disse variablene i Railway:
   - `GOOGLE_API_KEY`
+  - `OPENAI_API_KEY`
   - `BASIC_AUTH_USERNAME` (anbefalt) eller `USERNAME`
   - `BASIC_AUTH_PASSWORD` (anbefalt) eller `PASSWORD`
   - `AUTH_SESSION_SECRET` (anbefalt)
