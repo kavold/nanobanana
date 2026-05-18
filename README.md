@@ -99,7 +99,7 @@ Alle grenser kan justeres via miljo-variabler i `.env`/Railway.
       - Merk: GPT Image 2 bruker OpenAI `/images/edits` nar referansebilder lastes opp. OpenAI stotter ett eller flere referansebilder, men dette er ikke helt samme modellatferd som Gemini.
       - Merk: FLUX.2 Max bruker BFL sitt asynkrone `/flux-2-max`-endepunkt. BFL stotter opptil 8 referansebilder via API og 20 MB maks per fil.
     - `aspectRatio` (valgfritt, standard `16:9`)
-    - `resolution` (valgfritt, standard `2K`)
+    - `resolution` (valgfritt, standard `1K`)
     - `openaiSizeMode` (valgfritt, standard `aspect`)
       - `aspect`: GPT Image 2 mappes til valgt `aspectRatio` + `resolution`
       - `auto`: kun tilgjengelig nar bare `gpt-image-2` er valgt
@@ -109,6 +109,13 @@ Alle grenser kan justeres via miljo-variabler i `.env`/Railway.
       - Begge kanter ma vaere delelige med `16`
       - Forhold mellom lengste og korteste kant maks `3:1`
       - Totalt antall pixler ma vaere mellom `655360` og `8294400`
+    - `bflSizeMode` (valgfritt, standard `aspect`)
+      - `aspect`: FLUX.2 Max mappes til valgt `aspectRatio` + `resolution`
+      - `auto`: kun tilgjengelig nar bare `flux-2-max` er valgt
+      - `exact`: kun tilgjengelig nar bare `flux-2-max` er valgt
+    - `bflWidth` og `bflHeight` (pakrevd ved `bflSizeMode=exact`)
+      - Min kant: `64px`
+      - Totalt antall pixler ma vaere maks `4194304`
     - `models` (valgfritt, kan sendes flere ganger for sammenligning)
       - `gemini-3.1-flash-image-preview`
       - `gemini-3-pro-image-preview`

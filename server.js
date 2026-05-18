@@ -476,7 +476,8 @@ const IMAGE_MODEL_CONFIGS = {
     maxInputImages: 8
   }
 };
-const DEFAULT_IMAGE_MODEL = 'gemini-3.1-flash-image-preview';
+const DEFAULT_IMAGE_MODEL = 'gpt-image-2';
+const DEFAULT_IMAGE_RESOLUTION = '1K';
 const MAX_INLINE_IMAGE_BYTES = 7 * 1024 * 1024;
 const BFL_MAX_INPUT_IMAGES = 8;
 const BFL_MAX_INPUT_IMAGE_BYTES = 20 * 1024 * 1024;
@@ -484,6 +485,7 @@ const BFL_MIN_IMAGE_EDGE = 64;
 const BFL_MAX_IMAGE_PIXELS = 2048 * 2048;
 const BFL_SIZE_MULTIPLE = 16;
 const BFL_DEFAULT_OUTPUT_FORMAT = 'png';
+const BFL_DEFAULT_SIZE_MODE = 'aspect';
 const OPENAI_MIN_IMAGE_PIXELS = 655360;
 const OPENAI_MAX_IMAGE_PIXELS = 8294400;
 const OPENAI_MAX_IMAGE_EDGE = 3840;
@@ -602,7 +604,7 @@ function floorToMultiple(value, multiple) {
   return Math.floor(value / multiple) * multiple;
 }
 
-function resolveBflImageSize(aspectRatio, resolution) {
+function mapComparisonSizeToBfl(aspectRatio, resolution) {
   const { width: ratioWidth, height: ratioHeight } = parseAspectRatio(aspectRatio);
   const ratio = ratioWidth / ratioHeight;
   const longEdgeByResolution = {
@@ -610,7 +612,7 @@ function resolveBflImageSize(aspectRatio, resolution) {
     '2K': 2048,
     '4K': 3840
   };
-  const requestedLongEdge = longEdgeByResolution[resolution] || longEdgeByResolution['2K'];
+  const requestedLongEdge = longEdgeByResolution[resolution] || longEdgeByResolution[DEFAULT_IMAGE_RESOLUTION];
   let desiredWidth = ratio >= 1 ? requestedLongEdge : requestedLongEdge * ratio;
   let desiredHeight = ratio >= 1 ? requestedLongEdge / ratio : requestedLongEdge;
   const desiredPixels = desiredWidth * desiredHeight;
@@ -629,6 +631,48 @@ function resolveBflImageSize(aspectRatio, resolution) {
   }
 
   return { width, height };
+}
+
+function validateExactBflImageSize(widthValue, heightValue) {
+  const width = Number(widthValue);
+  const height = Number(heightValue);
+
+  if (!Number.isInteger(width) || !Number.isInteger(height)) {
+    throw new Error('Eksakt FLUX.2-storrelse ma ha gyldig bredde og hoyde.');
+  }
+  if (width < BFL_MIN_IMAGE_EDGE || height < BFL_MIN_IMAGE_EDGE) {
+    throw new Error(`FLUX.2 krever minst ${BFL_MIN_IMAGE_EDGE}px pa hver kant.`);
+  }
+
+  const totalPixels = width * height;
+  if (totalPixels > BFL_MAX_IMAGE_PIXELS) {
+    throw new Error(`FLUX.2 stotter opptil ${BFL_MAX_IMAGE_PIXELS.toLocaleString('nb-NO')} pixler totalt.`);
+  }
+
+  return { width, height };
+}
+
+function resolveBflImageSize({ selectedModels, aspectRatio, resolution, bflSizeMode, bflWidth, bflHeight }) {
+  const canUseBflFlexibleSize = onlySelectedProvider(selectedModels, 'bfl');
+  const normalizedSizeMode = typeof bflSizeMode === 'string' && bflSizeMode.trim() !== ''
+    ? bflSizeMode.trim()
+    : BFL_DEFAULT_SIZE_MODE;
+
+  if (canUseBflFlexibleSize && normalizedSizeMode === 'auto') {
+    return { mode: 'auto', width: null, height: null };
+  }
+
+  if (canUseBflFlexibleSize && normalizedSizeMode === 'exact') {
+    return {
+      ...validateExactBflImageSize(bflWidth, bflHeight),
+      mode: 'exact'
+    };
+  }
+
+  return {
+    ...mapComparisonSizeToBfl(aspectRatio, resolution),
+    mode: 'aspect'
+  };
 }
 
 function isValidOpenAIImageSize(width, height) {
@@ -689,7 +733,7 @@ function mapComparisonSizeToOpenAI(aspectRatio, resolution) {
     '2K': 2048,
     '4K': 3840
   };
-  const longEdge = longEdgeByResolution[resolution] || longEdgeByResolution['2K'];
+  const longEdge = longEdgeByResolution[resolution] || longEdgeByResolution[DEFAULT_IMAGE_RESOLUTION];
   const desiredWidth = ratio >= 1 ? longEdge : longEdge * ratio;
   const desiredHeight = ratio >= 1 ? longEdge / ratio : longEdge;
   return nearestValidOpenAIImageSize(desiredWidth, desiredHeight);
@@ -1134,22 +1178,32 @@ async function downloadBflImage(sampleUrl, modelId, outputFormat) {
 async function generateWithBflImageModel(modelId, modelConfigMeta, requestContext) {
   const modelResult = createImageModelResult(modelId, modelConfigMeta);
   try {
-    const { prompt, files, aspectRatio, resolution } = requestContext;
-    const { width, height } = resolveBflImageSize(aspectRatio, resolution);
+    const { prompt, files, selectedModels, aspectRatio, resolution, bflSizeMode, bflWidth, bflHeight } = requestContext;
+    const resolvedSize = resolveBflImageSize({
+      selectedModels,
+      aspectRatio,
+      resolution,
+      bflSizeMode,
+      bflWidth,
+      bflHeight
+    });
     const outputFormat = BFL_DEFAULT_OUTPUT_FORMAT;
     const payload = {
       prompt,
-      width,
-      height,
       safety_tolerance: 2,
       output_format: outputFormat
     };
+    if (resolvedSize.width && resolvedSize.height) {
+      payload.width = resolvedSize.width;
+      payload.height = resolvedSize.height;
+    }
     appendBflInputImages(payload, files, modelConfigMeta.maxInputImages || BFL_MAX_INPUT_IMAGES);
 
     modelResult.debug.attempts.push({
       label: 'requested',
-      width,
-      height,
+      width: resolvedSize.width,
+      height: resolvedSize.height,
+      sizeMode: resolvedSize.mode,
       inputImages: files ? files.length : 0,
       outputFormat
     });
@@ -1347,10 +1401,13 @@ app.post('/generate', generateIpRateLimiter, generateUserRateLimiter, upload.arr
     const {
       prompt,
       aspectRatio = '16:9',
-      resolution = '2K',
+      resolution = DEFAULT_IMAGE_RESOLUTION,
       openaiSizeMode = OPENAI_DEFAULT_SIZE_MODE,
       openaiWidth,
       openaiHeight,
+      bflSizeMode = BFL_DEFAULT_SIZE_MODE,
+      bflWidth,
+      bflHeight,
       useGoogleSearch,
       models
     } = req.body;
@@ -1396,6 +1453,22 @@ app.post('/generate', generateIpRateLimiter, generateUserRateLimiter, upload.arr
       }
     }
 
+    if (selectedModelsIncludeProvider(selectedModels, 'bfl')) {
+      try {
+        resolveBflImageSize({
+          selectedModels,
+          aspectRatio,
+          resolution,
+          bflSizeMode,
+          bflWidth,
+          bflHeight
+        });
+      } catch (sizeError) {
+        cleanupUploadedFiles(req.files);
+        return res.status(400).json({ error: sizeError.message });
+      }
+    }
+
     const budgetResult = consumeGenerateBudget(selectedModels.length);
     if (!budgetResult.allowed) {
       cleanupUploadedFiles(req.files);
@@ -1431,6 +1504,9 @@ app.post('/generate', generateIpRateLimiter, generateUserRateLimiter, upload.arr
       openaiSizeMode,
       openaiWidth,
       openaiHeight,
+      bflSizeMode,
+      bflWidth,
+      bflHeight,
       useGoogleSearch,
       parts
     }));
