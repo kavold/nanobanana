@@ -35,6 +35,7 @@ Node.js/Express-app for bildegenerering og bilderedigering med Gemini, GPT Image
    BFL_API_BASE_URL=
    BFL_POLL_INTERVAL_MS=750
    BFL_POLL_TIMEOUT_SECONDS=120
+   INPUT_IMAGE_MAX_EDGE=2048
    PORT=3001
    NODE_ENV=development
    USERNAME=valgfritt_i_dev
@@ -95,9 +96,10 @@ Alle grenser kan justeres via miljo-variabler i `.env`/Railway.
   - Felter:
     - `prompt` (pakrevd)
     - `images` (valgfritt, opptil 14 filer)
-      - Merk: Inline-opplasting til Gemini image-modeller har 7 MB maks per fil
+      - Bilder, inkludert HEIC/HEIF fra mobilkamera, auto-roteres og konverteres til WebP med maks 2048 px lengste kant for modellkallet
+      - Gemini-bilder komprimeres til en samlet rådatabudsjett på 14 MiB, slik at inline-requesten holder seg under leverandorens totalgrense på 20 MB etter base64 og promptdata
       - Merk: GPT Image 2 bruker OpenAI `/images/edits` nar referansebilder lastes opp. OpenAI stotter ett eller flere referansebilder, men dette er ikke helt samme modellatferd som Gemini.
-      - Merk: FLUX.2 Max bruker BFL sitt asynkrone `/flux-2-max`-endepunkt. BFL stotter opptil 8 referansebilder via API og 20 MB maks per fil.
+      - Merk: FLUX.2 Max bruker BFL sitt asynkrone `/flux-2-max`-endepunkt. Appen sender opptil 10 referansebilder og maks 20 MiB per ferdigbehandlet fil.
     - `aspectRatio` (valgfritt, standard `16:9`)
     - `resolution` (valgfritt, standard `1K`)
     - `openaiSizeMode` (valgfritt, standard `aspect`)

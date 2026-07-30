@@ -6,6 +6,7 @@ const path = require('path');
 const cors = require('cors');
 const crypto = require('crypto');
 const dotenv = require('dotenv');
+const { normalizeUploadedImages } = require('./image-processing');
 const dotenvResult = dotenv.config();
 const envFromFile = dotenvResult.parsed || {};
 // No-op change to verify Railway auto-deploy trigger.
@@ -473,14 +474,17 @@ const IMAGE_MODEL_CONFIGS = {
     endpoint: 'flux-2-max',
     supportsAspectRatio: true,
     supportsGoogleSearch: false,
-    maxInputImages: 8
+    maxInputImages: 10
   }
 };
 const DEFAULT_IMAGE_MODEL = 'gpt-image-2';
 const DEFAULT_IMAGE_RESOLUTION = '1K';
-const MAX_INLINE_IMAGE_BYTES = 7 * 1024 * 1024;
-const BFL_MAX_INPUT_IMAGES = 8;
+// Gemini inline requests must stay below 20 MB in total. Keeping the raw image
+// payload below 14 MiB also leaves room for base64 expansion and prompt data.
+const GEMINI_INLINE_IMAGE_BUDGET_BYTES = 14 * 1024 * 1024;
+const BFL_MAX_INPUT_IMAGES = 10;
 const BFL_MAX_INPUT_IMAGE_BYTES = 20 * 1024 * 1024;
+const INPUT_IMAGE_MAX_EDGE = readEnvNumber('INPUT_IMAGE_MAX_EDGE', 2048);
 const BFL_MIN_IMAGE_EDGE = 64;
 const BFL_MAX_IMAGE_PIXELS = 2048 * 2048;
 const BFL_SIZE_MULTIPLE = 16;
@@ -542,30 +546,6 @@ function summarizeResponseForDebug(response) {
   return segments.length > 0 ? segments.join(', ') : 'No extra metadata';
 }
 
-function validateInlineInputFiles(files, selectedModels) {
-  if (!files || !Array.isArray(files) || files.length === 0) {
-    return null;
-  }
-
-  if (!selectedModelsIncludeProvider(selectedModels, 'google')) {
-    return null;
-  }
-
-  const oversized = files.filter((file) => file && file.size > MAX_INLINE_IMAGE_BYTES);
-  if (oversized.length > 0) {
-    const details = oversized
-      .map((file) => `${file.originalname || file.filename || 'ukjent-fil'} (${(file.size / (1024 * 1024)).toFixed(2)} MB)`)
-      .join(', ');
-    return `En eller flere filer er for store for Gemini inline-opplasting. Maks er 7 MB per fil. For store filer: ${details}`;
-  }
-
-  return null;
-}
-
-function formatMegabytes(bytes) {
-  return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
-}
-
 function validateBflInputFiles(files, selectedModels) {
   if (!files || !Array.isArray(files) || files.length === 0) {
     return null;
@@ -577,14 +557,6 @@ function validateBflInputFiles(files, selectedModels) {
 
   if (files.length > BFL_MAX_INPUT_IMAGES) {
     return `FLUX.2 Max stotter maks ${BFL_MAX_INPUT_IMAGES} referansebilder via API. Fjern ${files.length - BFL_MAX_INPUT_IMAGES} bilde(r) og prov igjen.`;
-  }
-
-  const oversized = files.filter((file) => file && file.size > BFL_MAX_INPUT_IMAGE_BYTES);
-  if (oversized.length > 0) {
-    const details = oversized
-      .map((file) => `${file.originalname || file.filename || 'ukjent-fil'} (${formatMegabytes(file.size)})`)
-      .join(', ');
-    return `En eller flere filer er for store for FLUX.2 Max. Maks er ${formatMegabytes(BFL_MAX_INPUT_IMAGE_BYTES)} per fil. For store filer: ${details}`;
   }
 
   return null;
@@ -1425,12 +1397,6 @@ app.post('/generate', generateIpRateLimiter, generateUserRateLimiter, upload.arr
       });
     }
 
-    const fileValidationError = validateInlineInputFiles(req.files, selectedModels);
-    if (fileValidationError) {
-      cleanupUploadedFiles(req.files);
-      return res.status(400).json({ error: fileValidationError });
-    }
-
     const bflFileValidationError = validateBflInputFiles(req.files, selectedModels);
     if (bflFileValidationError) {
       cleanupUploadedFiles(req.files);
@@ -1467,6 +1433,22 @@ app.post('/generate', generateIpRateLimiter, generateUserRateLimiter, upload.arr
         cleanupUploadedFiles(req.files);
         return res.status(400).json({ error: sizeError.message });
       }
+    }
+
+    let inputProcessing = null;
+    try {
+      const hasGemini = selectedModelsIncludeProvider(selectedModels, 'google');
+      const fileCount = Math.max(1, (req.files || []).length);
+      inputProcessing = await normalizeUploadedImages(req.files || [], {
+        maxEdge: INPUT_IMAGE_MAX_EDGE,
+        maxTotalBytes: hasGemini
+          ? GEMINI_INLINE_IMAGE_BUDGET_BYTES
+          : BFL_MAX_INPUT_IMAGE_BYTES * fileCount,
+        maxFileBytes: BFL_MAX_INPUT_IMAGE_BYTES
+      });
+    } catch (processingError) {
+      cleanupUploadedFiles(req.files);
+      return res.status(400).json({ error: processingError.message });
     }
 
     const budgetResult = consumeGenerateBudget(selectedModels.length);
@@ -1524,6 +1506,7 @@ app.post('/generate', generateIpRateLimiter, generateUserRateLimiter, upload.arr
     if (!hasAnySuccess) {
       return res.status(500).json({
         error: 'Ingen modeller returnerte gyldig innhold. Se detaljer per modell.',
+        inputProcessing,
         results: modelResults
       });
     }
@@ -1534,11 +1517,13 @@ app.post('/generate', generateIpRateLimiter, generateUserRateLimiter, upload.arr
         text: single.text,
         image: single.image,
         groundingMetadata: single.groundingMetadata,
+        inputProcessing,
         results: modelResults
       });
     }
 
     return res.json({
+      inputProcessing,
       results: modelResults
     });
 

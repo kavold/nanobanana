@@ -523,7 +523,7 @@
                         <input type="checkbox" name="models" value="flux-2-max">
                         <span>
                             <strong>FLUX.2 Max</strong>
-                            <small>Høyeste kvalitetsmodell fra Black Forest Labs. Støtter tekst-til-bilde og opptil 8 referansebilder.</small>
+                            <small>Høyeste kvalitetsmodell fra Black Forest Labs. Støtter tekst-til-bilde og opptil 10 referansebilder.</small>
                         </span>
                     </label>
                 </div>
@@ -601,7 +601,7 @@
             <div class="form-group">
                 <label for="images">Referansebilder (valgfritt):</label>
                 <input type="file" id="images" accept="image/*" multiple>
-                <small id="imageHelpText" style="color: #666;">Last opp inntil 14 bilder som referanse. Gemini har 7 MB maks per fil; FLUX.2 Max støtter 8 bilder med 20 MB maks per fil.</small>
+                <small id="imageHelpText" style="color: #666;">Last opp inntil 14 bilder som referanse. Store mobilbilder roteres, konverteres og forminskes automatisk før de sendes til modellen.</small>
                 <div id="imageCounter" style="margin-top: 10px; font-weight: bold; color: #0f4c81;"></div>
                 <div id="imagePreview" class="image-preview"></div>
             </div>
@@ -777,8 +777,7 @@
         const OPENAI_MAX_IMAGE_EDGE = 3840;
         const OPENAI_SIZE_MULTIPLE = 16;
         const OPENAI_MAX_IMAGE_RATIO = 3;
-        const BFL_MAX_INPUT_IMAGES = 8;
-        const BFL_MAX_INPUT_IMAGE_BYTES = 20 * 1024 * 1024;
+        const BFL_MAX_INPUT_IMAGES = 10;
         const BFL_MIN_IMAGE_EDGE = 64;
         const BFL_MAX_IMAGE_PIXELS = 2048 * 2048;
 
@@ -879,15 +878,15 @@
             bflHeightInput.disabled = !showBflExactSizeFields;
 
             if (hasFlux2Max && hasGemini) {
-                document.getElementById('imageHelpText').textContent = 'Last opp inntil 8 bilder når FLUX.2 Max er valgt. BFL har 20 MB maks per fil; Gemini har 7 MB maks per fil ved sammenligning.';
+                document.getElementById('imageHelpText').textContent = 'Last opp inntil 10 bilder når FLUX.2 Max er valgt. Store bilder tilpasses automatisk til den strengeste valgte modellen.';
             } else if (hasFlux2Max) {
-                document.getElementById('imageHelpText').textContent = 'Last opp inntil 8 bilder når FLUX.2 Max er valgt. BFL har 20 MB maks per fil og bruker referansebilder via sitt FLUX.2-endepunkt.';
+                document.getElementById('imageHelpText').textContent = 'Last opp inntil 10 bilder når FLUX.2 Max er valgt. Store mobilbilder forminskes automatisk før modellkallet.';
             } else if (hasGptImage2 && hasGemini) {
-                document.getElementById('imageHelpText').textContent = 'Last opp inntil 14 bilder som referanse. Ved sammenligning ma bildene fungere for begge providere; Gemini har 7 MB maks per fil.';
+                document.getElementById('imageHelpText').textContent = 'Last opp inntil 14 bilder som referanse. Bildene tilpasses automatisk til Geminis samlede inline-grense ved sammenligning.';
             } else if (onlyGptImage2) {
-                document.getElementById('imageHelpText').textContent = 'Last opp inntil 14 bilder som referanse. GPT Image 2 bruker referansebilder via OpenAI sitt edits-endepunkt og behandler bildeinput med hoy fidelity.';
+                document.getElementById('imageHelpText').textContent = 'Last opp inntil 14 bilder som referanse. Store mobilbilder roteres, konverteres og forminskes automatisk før modellkallet.';
             } else {
-                document.getElementById('imageHelpText').textContent = 'Last opp inntil 14 bilder som referanse. Gemini inline-opplasting har 7 MB maks per fil.';
+                document.getElementById('imageHelpText').textContent = 'Last opp inntil 14 bilder som referanse. Bildene forminskes automatisk slik at hele Gemini-forespørselen holder seg under inline-grensen.';
             }
         }
 
@@ -931,11 +930,6 @@
                     return;
                 }
 
-                const oversizedBflFile = selectedFiles.find((file) => file && file.size > BFL_MAX_INPUT_IMAGE_BYTES);
-                if (oversizedBflFile) {
-                    alert(`FLUX.2 Max støtter maks 20 MB per referansebilde. Filen "${oversizedBflFile.name}" er for stor.`);
-                    return;
-                }
             }
             if (isOnlyGptImage2Selected() && openaiSizeMode === 'exact') {
                 const exactSizeError = validateExactOpenAIImageSize(openaiWidth, openaiHeight);
