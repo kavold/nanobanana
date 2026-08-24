@@ -180,6 +180,45 @@
             resize: vertical;
             font-family: Arial, sans-serif;
         }
+        .prompt-heading {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            margin-bottom: 8px;
+        }
+        .prompt-heading label {
+            margin-bottom: 0;
+        }
+        button.prompt-preset-button {
+            width: auto;
+            flex: 0 0 auto;
+            padding: 9px 14px;
+            border: 1px solid rgba(15, 118, 110, 0.28);
+            background: #ecfdf5;
+            color: #0f5f59;
+            font-size: 14px;
+            box-shadow: none;
+        }
+        button.prompt-preset-button:hover {
+            background: #d1fae5;
+            box-shadow: 0 5px 12px rgba(15, 118, 110, 0.14);
+        }
+        .prompt-preset-status {
+            display: none;
+            margin-top: 7px;
+            color: #0f766e;
+            font-size: 13px;
+        }
+        @media (max-width: 600px) {
+            .prompt-heading {
+                align-items: stretch;
+                flex-direction: column;
+            }
+            button.prompt-preset-button {
+                width: 100%;
+            }
+        }
         button {
             background: linear-gradient(135deg, #0f766e 0%, #0f4c81 100%);
             color: white;
@@ -491,8 +530,12 @@
         
         <form id="generateForm">
             <div class="form-group">
-                <label for="prompt">Beskrivelse (påkrevd):</label>
+                <div class="prompt-heading">
+                    <label for="prompt">Beskrivelse (påkrevd):</label>
+                    <button type="button" id="restorePhotoPromptButton" class="prompt-preset-button">Restaurer gammelt foto</button>
+                </div>
                 <textarea id="prompt" placeholder="Beskriv bildet du vil generere..." required></textarea>
+                <small id="promptPresetStatus" class="prompt-preset-status" aria-live="polite">Restaureringsprompten er lagt inn med 3:2 og 4K. Tilpass den gjerne før du genererer.</small>
             </div>
 
             <div class="form-group">
@@ -517,6 +560,13 @@
                         <span>
                             <strong>GPT Image 2</strong>
                             <small>Standardvalget. Erfaringen er at den ofte er best på å bevare personlikhet fra referansebilder, og den støtter eksakt pixelstørrelse.</small>
+                        </span>
+                    </label>
+                    <label class="model-option">
+                        <input type="checkbox" name="models" value="grok-imagine-image-2.0">
+                        <span>
+                            <strong>Grok Imagine Image 2.0</strong>
+                            <small>xAIs bildegenerator for tekst-til-bilde og redigering med opptil 3 referansebilder. Støtter 1K og 2K; 4K-valg tilpasses til 2K.</small>
                         </span>
                     </label>
                     <label class="model-option">
@@ -771,6 +821,7 @@
         }
 
         const GPT_IMAGE_2_MODEL = 'gpt-image-2';
+        const GROK_IMAGINE_IMAGE_MODEL = 'grok-imagine-image-2.0';
         const FLUX_2_MAX_MODEL = 'flux-2-max';
         const OPENAI_MIN_IMAGE_PIXELS = 655360;
         const OPENAI_MAX_IMAGE_PIXELS = 8294400;
@@ -778,8 +829,38 @@
         const OPENAI_SIZE_MULTIPLE = 16;
         const OPENAI_MAX_IMAGE_RATIO = 3;
         const BFL_MAX_INPUT_IMAGES = 10;
+        const XAI_MAX_INPUT_IMAGES = 3;
         const BFL_MIN_IMAGE_EDGE = 64;
         const BFL_MAX_IMAGE_PIXELS = 2048 * 2048;
+        const RESTORE_VINTAGE_PHOTO_PROMPT = `Restore the uploaded vintage photograph as a conservative archival photo restoration.
+
+If the source is a camera photograph of a physical print, correct perspective and lens distortion only as needed to make it resemble a high-quality flatbed scan. Preserve the original image boundaries, composition, crop, and framing.
+
+Neutralize the white balance and color casts. Correct fading and age-related color shifts. Even out illumination and reduce glare, reflections, hotspots, edge darkening, and shadows caused by photographing the print. Improve tonal balance, contrast, and color accuracy naturally. Recover detail in highlights and shadows only where information is present in the source.
+
+Remove dust, stains, and minor scratches or creases only where the repair can be inferred unambiguously from the immediately surrounding image. Preserve authentic film grain, paper texture, natural softness, age characteristics, and historically meaningful marks. Do not over-sharpen, over-smooth, beautify, de-age, or apply a modern stylized look.
+
+Keep every person and object exactly the same. Preserve identity, facial anatomy, skin texture, expression, gaze, pose, body proportions, clothing, hairstyles, hands, objects, background, text, signage, and all historical details. Do not add, remove, replace, redesign, or relocate anything.
+
+Treat this strictly as photographic restoration and color correction, not scene recreation or new image generation. Never hallucinate or reinterpret missing information. If detail is genuinely absent, damaged, blurred, or clipped, leave it naturally unresolved rather than inventing it. The result should be subtle, faithful, and look like an expertly restored scan of the same original photograph.`;
+
+        function applyRestorePhotoPrompt() {
+            const promptField = document.getElementById('prompt');
+            const status = document.getElementById('promptPresetStatus');
+            promptField.value = RESTORE_VINTAGE_PHOTO_PROMPT;
+            document.getElementById('openaiSizeMode').value = 'aspect';
+            document.getElementById('bflSizeMode').value = 'aspect';
+            document.getElementById('aspectRatio').value = '3:2';
+            document.getElementById('resolution').value = '4K';
+            updateSizeControls();
+            promptField.style.height = 'auto';
+            promptField.style.height = `${Math.min(promptField.scrollHeight, 440)}px`;
+            promptField.focus();
+            promptField.setSelectionRange(0, 0);
+            status.style.display = 'block';
+        }
+
+        document.getElementById('restorePhotoPromptButton').addEventListener('click', applyRestorePhotoPrompt);
 
         function getSelectedModels() {
             return Array.from(document.querySelectorAll('input[name="models"]:checked')).map(input => input.value);
@@ -792,6 +873,21 @@
 
         function isFlux2MaxSelected() {
             return getSelectedModels().includes(FLUX_2_MAX_MODEL);
+        }
+
+        function isGrokImagineSelected() {
+            return getSelectedModels().includes(GROK_IMAGINE_IMAGE_MODEL);
+        }
+
+        function getMaxInputImages() {
+            let maxImages = 14;
+            if (isFlux2MaxSelected()) {
+                maxImages = Math.min(maxImages, BFL_MAX_INPUT_IMAGES);
+            }
+            if (isGrokImagineSelected()) {
+                maxImages = Math.min(maxImages, XAI_MAX_INPUT_IMAGES);
+            }
+            return maxImages;
         }
 
         function isOnlyFlux2MaxSelected() {
@@ -854,6 +950,7 @@
             const onlyFlux2Max = isOnlyFlux2MaxSelected();
             const selectedModels = getSelectedModels();
             const hasGptImage2 = selectedModels.includes(GPT_IMAGE_2_MODEL);
+            const hasGrokImagine = selectedModels.includes(GROK_IMAGINE_IMAGE_MODEL);
             const hasFlux2Max = selectedModels.includes(FLUX_2_MAX_MODEL);
             const hasGemini = selectedModels.some((model) => model.startsWith('gemini-'));
             const openaiSizeMode = document.getElementById('openaiSizeMode').value;
@@ -877,7 +974,11 @@
             bflWidthInput.disabled = !showBflExactSizeFields;
             bflHeightInput.disabled = !showBflExactSizeFields;
 
-            if (hasFlux2Max && hasGemini) {
+            if (hasGrokImagine) {
+                document.getElementById('imageHelpText').textContent = selectedModels.length > 1
+                    ? 'Last opp inntil 3 referansebilder når Grok Imagine sammenlignes med andre modeller. Bildene tilpasses automatisk før modellkallene.'
+                    : 'Grok Imagine støtter opptil 3 referansebilder. Store mobilbilder roteres, konverteres og forminskes automatisk før modellkallet.';
+            } else if (hasFlux2Max && hasGemini) {
                 document.getElementById('imageHelpText').textContent = 'Last opp inntil 10 bilder når FLUX.2 Max er valgt. Store bilder tilpasses automatisk til den strengeste valgte modellen.';
             } else if (hasFlux2Max) {
                 document.getElementById('imageHelpText').textContent = 'Last opp inntil 10 bilder når FLUX.2 Max er valgt. Store mobilbilder forminskes automatisk før modellkallet.';
@@ -916,20 +1017,14 @@
             const resultDiv = document.getElementById('result');
             const loadingDiv = document.getElementById('loading');
 
-            if (selectedFiles.length > 14) {
-                alert('Maksimalt 14 bilder tillatt');
+            const maxInputImages = getMaxInputImages();
+            if (selectedFiles.length > maxInputImages) {
+                alert(`Maksimalt ${maxInputImages} referansebilder er tillatt med valgte modeller.`);
                 return;
             }
             if (selectedModels.length === 0) {
                 alert('Velg minst en modell.');
                 return;
-            }
-            if (isFlux2MaxSelected()) {
-                if (selectedFiles.length > BFL_MAX_INPUT_IMAGES) {
-                    alert(`FLUX.2 Max støtter maks ${BFL_MAX_INPUT_IMAGES} referansebilder. Fjern noen bilder og prøv igjen.`);
-                    return;
-                }
-
             }
             if (isOnlyGptImage2Selected() && openaiSizeMode === 'exact') {
                 const exactSizeError = validateExactOpenAIImageSize(openaiWidth, openaiHeight);
@@ -1040,7 +1135,7 @@
         function updateImageCounter() {
             const counter = document.getElementById('imageCounter');
             if (selectedFiles.length > 0) {
-                const maxImages = isFlux2MaxSelected() ? BFL_MAX_INPUT_IMAGES : 14;
+                const maxImages = getMaxInputImages();
                 counter.textContent = `${selectedFiles.length} av ${maxImages} bilder valgt`;
             } else {
                 counter.textContent = '';
@@ -1083,7 +1178,7 @@
 
         document.getElementById('images').addEventListener('change', function(e) {
             const files = Array.from(e.target.files);
-            const maxFiles = isFlux2MaxSelected() ? BFL_MAX_INPUT_IMAGES : 14;
+            const maxFiles = getMaxInputImages();
 
             // Check if adding these files would exceed the limit
             if (selectedFiles.length + files.length > maxFiles) {
@@ -1105,7 +1200,7 @@
         });
 
         async function addGeneratedImageAsReference(imageUrl) {
-            const maxFiles = isFlux2MaxSelected() ? BFL_MAX_INPUT_IMAGES : 14;
+            const maxFiles = getMaxInputImages();
             if (selectedFiles.length >= maxFiles) {
                 alert(`Du har allerede ${maxFiles} bilder. Fjern noen bilder før du legger til flere.`);
                 return;

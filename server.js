@@ -7,6 +7,12 @@ const cors = require('cors');
 const crypto = require('crypto');
 const dotenv = require('dotenv');
 const { normalizeUploadedImages } = require('./image-processing');
+const {
+  XAI_MAX_INPUT_IMAGES,
+  requestXaiImage,
+  resolveXaiAspectRatio,
+  resolveXaiResolution
+} = require('./xai-image');
 const dotenvResult = dotenv.config();
 const envFromFile = dotenvResult.parsed || {};
 // No-op change to verify Railway auto-deploy trigger.
@@ -443,6 +449,8 @@ const upload = multer({
 const genAI = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY);
 const OPENAI_API_KEY = readEnv('OPENAI_API_KEY');
 const OPENAI_API_BASE_URL = readEnv('OPENAI_API_BASE_URL') || 'https://api.openai.com/v1';
+const XAI_API_KEY = readEnv('XAI_API_KEY');
+const XAI_API_BASE_URL = readEnv('XAI_API_BASE_URL') || 'https://api.x.ai/v1';
 const BFL_API_KEY = readEnv('BFL_API_KEY');
 const BFL_API_BASE_URL = readEnv('BFL_API_BASE_URL') || 'https://api.bfl.ai/v1';
 const BFL_POLL_INTERVAL_MS = readEnvNumber('BFL_POLL_INTERVAL_MS', 750);
@@ -467,6 +475,13 @@ const IMAGE_MODEL_CONFIGS = {
     supportsAspectRatio: true,
     supportsGoogleSearch: false,
     supportsExactSize: true
+  },
+  'grok-imagine-image-2.0': {
+    label: 'Grok Imagine Image 2.0',
+    provider: 'xai',
+    supportsAspectRatio: true,
+    supportsGoogleSearch: false,
+    maxInputImages: XAI_MAX_INPUT_IMAGES
   },
   'flux-2-max': {
     label: 'FLUX.2 Max',
@@ -557,6 +572,22 @@ function validateBflInputFiles(files, selectedModels) {
 
   if (files.length > BFL_MAX_INPUT_IMAGES) {
     return `FLUX.2 Max stotter maks ${BFL_MAX_INPUT_IMAGES} referansebilder via API. Fjern ${files.length - BFL_MAX_INPUT_IMAGES} bilde(r) og prov igjen.`;
+  }
+
+  return null;
+}
+
+function validateXaiInputFiles(files, selectedModels) {
+  if (!files || !Array.isArray(files) || files.length === 0) {
+    return null;
+  }
+
+  if (!selectedModelsIncludeProvider(selectedModels, 'xai')) {
+    return null;
+  }
+
+  if (files.length > XAI_MAX_INPUT_IMAGES) {
+    return `Grok Imagine stotter maks ${XAI_MAX_INPUT_IMAGES} referansebilder via API. Fjern ${files.length - XAI_MAX_INPUT_IMAGES} bilde(r) og prov igjen.`;
   }
 
   return null;
@@ -1012,6 +1043,51 @@ async function generateOpenAIImageEdit(modelId, prompt, files, size) {
   return requestOpenAIImages('/images/edits', { formData });
 }
 
+async function generateWithXaiImageModel(modelId, modelConfigMeta, requestContext) {
+  const modelResult = createImageModelResult(modelId, modelConfigMeta);
+  const { prompt, files, aspectRatio, resolution } = requestContext;
+  const resolvedAspectRatio = resolveXaiAspectRatio(aspectRatio);
+  const resolvedResolution = resolveXaiResolution(resolution);
+
+  modelResult.debug.attempts.push({
+    label: 'requested',
+    aspectRatio: resolvedAspectRatio,
+    resolution: resolvedResolution,
+    quality: 'medium',
+    inputImages: files ? files.length : 0
+  });
+
+  try {
+    const responseData = await requestXaiImage({
+      apiKey: XAI_API_KEY,
+      baseUrl: XAI_API_BASE_URL,
+      modelId,
+      prompt,
+      files,
+      aspectRatio,
+      resolution
+    });
+
+    modelResult.image = saveImageBuffer(
+      responseData.imageBuffer,
+      modelId,
+      responseData.contentType,
+      'jpg'
+    );
+    modelResult.text = responseData.revisedPrompt;
+    if (responseData.usage) {
+      modelResult.debug.usage = responseData.usage;
+    }
+  } catch (error) {
+    const message = error && error.message ? error.message : 'Ukjent xAI-feil';
+    console.error(`Error from model ${modelId}:`, error);
+    modelResult.error = message;
+    modelResult.debug.attempts[modelResult.debug.attempts.length - 1].summary = `exception=${message}`;
+  }
+
+  return modelResult;
+}
+
 function getBflErrorMessage(status, responseData, responseText) {
   if (responseData && responseData.detail) {
     if (Array.isArray(responseData.detail)) {
@@ -1341,6 +1417,9 @@ async function generateWithSelectedImageModel(modelId, requestContext) {
   if (modelConfigMeta.provider === 'bfl') {
     return generateWithBflImageModel(modelId, modelConfigMeta, requestContext);
   }
+  if (modelConfigMeta.provider === 'xai') {
+    return generateWithXaiImageModel(modelId, modelConfigMeta, requestContext);
+  }
   return generateWithGeminiImageModel(modelId, modelConfigMeta, requestContext);
 }
 
@@ -1401,6 +1480,12 @@ app.post('/generate', generateIpRateLimiter, generateUserRateLimiter, upload.arr
     if (bflFileValidationError) {
       cleanupUploadedFiles(req.files);
       return res.status(400).json({ error: bflFileValidationError });
+    }
+
+    const xaiFileValidationError = validateXaiInputFiles(req.files, selectedModels);
+    if (xaiFileValidationError) {
+      cleanupUploadedFiles(req.files);
+      return res.status(400).json({ error: xaiFileValidationError });
     }
 
     if (selectedModelsIncludeProvider(selectedModels, 'openai')) {

@@ -1,7 +1,7 @@
 {
   "name": "image-studio",
   "version": "1.0.0",
-  "description": "Image generation and editing with Google Gemini and GPT Image",
+  "description": "Image generation and editing with Gemini, GPT Image, Grok Imagine and FLUX",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
@@ -32,6 +32,8 @@
     "image-generation",
     "gemini",
     "gpt-image",
+    "grok-imagine",
+    "xai",
     "google"
   ],
   "author": "",
