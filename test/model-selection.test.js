@@ -72,6 +72,7 @@ test('default, exact sizes, and Lite resolution use the selected model capabilit
   assert.equal(defaultResult.data.results[0].model, 'gpt-image-2.5-sunburst');
   assert.equal(upstreamRequests[0].path, '/images/generations');
   assert.equal(upstreamRequests[0].body.model, 'gpt-image-2.5-sunburst');
+  assert.equal(upstreamRequests[0].body.prompt, 'A test image');
 
   const exactResult = await generate({
     models: 'gpt-image-2.5-flare',
@@ -99,4 +100,16 @@ test('default, exact sizes, and Lite resolution use the selected model capabilit
   assert.equal(validLite.data.results[0].model, 'gemini-3.1-flash-lite-image');
   assert.match(upstreamRequests[3].path, /gemini-3\.1-flash-lite-image:generateContent/);
   assert.equal(upstreamRequests[3].body.generationConfig.imageConfig.imageSize, '1K');
+
+  const brandedOpenAI = await generate({ useIntuvioBrandGuidelines: 'true' });
+  assert.equal(brandedOpenAI.response.status, 200);
+  const openaiPrompt = upstreamRequests[4].body.prompt;
+  assert.match(openaiPrompt, /^A test image\n\nIntuvio Brand Guidelines/);
+  for (const rule of ['Inter Tight', '#FFFFFF', '#211446', '#83AEEA', '#6C3DED', '#D4A7F4', '#A1DF83', '#EBD16A', '#EA9460', '#ED6060']) {
+    assert.ok(openaiPrompt.includes(rule), `Missing brand rule: ${rule}`);
+  }
+
+  const brandedGemini = await generate({ models: 'gemini-3.1-flash-lite-image', useIntuvioBrandGuidelines: 'true' });
+  assert.equal(brandedGemini.response.status, 200);
+  assert.equal(upstreamRequests[5].body.contents[0].parts[0].text, openaiPrompt);
 });

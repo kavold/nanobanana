@@ -7,6 +7,7 @@ Node.js/Express-app for bildegenerering og bilderedigering med Gemini, GPT Image
 - Tekst-til-bilde generering
 - Redigering med opptil 14 referansebilder, avhengig av valgt modell
 - Ferdig redigerbar prompt for konservativ restaurering av gamle fotografier
+- Valgfri Intuvio Brand Guidelines-avhuking som legger font- og fargeregler til prompten for alle valgte modeller
 - Valg av aspektforhold og opplosning
 - Eksakt pixelstorrelse for GPT Image-modeller nar en av dem brukes alene
 - Modellvalg per request:
@@ -105,6 +106,9 @@ Alle grenser kan justeres via miljo-variabler i `.env`/Railway.
   - `multipart/form-data`
   - Felter:
     - `prompt` (pakrevd)
+    - `useIntuvioBrandGuidelines` (valgfritt, `true` eller `false`, standard `false`)
+      - Nar `true` legges Inter Tight og Intuvios fargepalett til prompten som sendes til alle valgte modeller. Primar: hvit, `#211446`, `#83AEEA`; knapper: `#6C3DED`. Sekundar: `#D4A7F4`, `#A1DF83`, `#EBD16A`, `#EA9460`, `#ED6060`.
+      - Ved redigering av referansefoto gjelder paletten nye grafiske elementer; originalfotoets personer, produkter og farger skal bevares. Kontroller tekst og eksakt font i resultatet.
     - `images` (valgfritt, opptil 14 filer)
       - Bilder, inkludert HEIC/HEIF fra mobilkamera, auto-roteres og konverteres til WebP med maks 2048 px lengste kant for modellkallet
       - Gemini-bilder komprimeres til en samlet rådatabudsjett på 14 MiB, slik at inline-requesten holder seg under leverandorens totalgrense på 20 MB etter base64 og promptdata

@@ -519,6 +519,18 @@ const IMAGE_MODEL_CONFIGS = {
 };
 const DEFAULT_IMAGE_MODEL = 'gpt-image-2.5-sunburst';
 const DEFAULT_IMAGE_RESOLUTION = '1K';
+const INTUVIO_BRAND_GUIDELINES = `Intuvio Brand Guidelines for this image:
+- Use Inter Tight for all visible typography. If exact font rendering is unavailable, make the lettering as close to Inter Tight as possible; keep text legible and correctly spelled.
+- Primary colors: white (#FFFFFF), deep purple (#211446), and light blue (#83AEEA). Use #6C3DED for buttons and calls to action.
+- Secondary colors, for restrained accents only: #D4A7F4, #A1DF83, #EBD16A, #EA9460, and #ED6060.
+- Keep graphic elements, backgrounds, and any added text within this palette. Maintain clear contrast and a consistent Intuvio look.
+- When editing a reference photo, preserve the original people, products, and photographic colors unless the user explicitly asks to change them. Apply these brand rules to new graphic elements instead.`;
+
+function buildGenerationPrompt(prompt, useIntuvioBrandGuidelines) {
+  return useIntuvioBrandGuidelines === 'true'
+    ? `${prompt}\n\n${INTUVIO_BRAND_GUIDELINES}`
+    : prompt;
+}
 // Gemini inline requests must stay below 20 MB in total. Keeping the raw image
 // payload below 14 MiB also leaves room for base64 expansion and prompt data.
 const GEMINI_INLINE_IMAGE_BUDGET_BYTES = 14 * 1024 * 1024;
@@ -1481,6 +1493,7 @@ app.post('/generate', generateIpRateLimiter, generateUserRateLimiter, upload.arr
       bflWidth,
       bflHeight,
       useGoogleSearch,
+      useIntuvioBrandGuidelines,
       models
     } = req.body;
 
@@ -1574,11 +1587,11 @@ app.post('/generate', generateIpRateLimiter, generateUserRateLimiter, upload.arr
       return res.status(429).json({ error: budgetResult.error });
     }
 
+    const generationPrompt = buildGenerationPrompt(prompt, useIntuvioBrandGuidelines);
+
     // Build parts array based on input
     const parts = [];
-    
-    // Keep user prompt unchanged to avoid introducing extra policy-sensitive phrasing.
-    parts.push(prompt);
+    parts.push(generationPrompt);
     
     // Add images after the prompt for Gemini. Other providers read the uploaded files directly in their adapters.
     if (selectedModelsIncludeProvider(selectedModels, 'google') && req.files && req.files.length > 0) {
@@ -1588,13 +1601,14 @@ app.post('/generate', generateIpRateLimiter, generateUserRateLimiter, upload.arr
       }
     }
 
-    console.log('Sending image generation request with prompt:', parts[0]);
+    console.log('Sending image generation request with prompt:', prompt);
+    console.log('Intuvio brand guidelines:', useIntuvioBrandGuidelines === 'true' ? 'enabled' : 'disabled');
     console.log('Number of input images:', req.files ? req.files.length : 0);
     console.log('Total parts in request:', parts.length);
 
     console.log(`Calling ${selectedModels.length} selected model(s) in parallel: ${selectedModels.join(', ')}`);
     const modelPromises = selectedModels.map((selectedModel) => generateWithSelectedImageModel(selectedModel, {
-      prompt,
+      prompt: generationPrompt,
       files: req.files || [],
       selectedModels,
       aspectRatio,

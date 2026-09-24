@@ -159,6 +159,7 @@
             flex: 1;
         }
         .checkbox-description {
+            display: block;
             font-size: 13px;
             color: #666;
             margin-top: 5px;
@@ -523,6 +524,14 @@
                 </div>
                 <textarea id="prompt" placeholder="Beskriv bildet du vil generere..." required></textarea>
                 <small id="promptPresetStatus" class="prompt-preset-status" aria-live="polite">Restaureringsprompten er lagt inn med 3:2 og 4K. Tilpass den gjerne før du genererer.</small>
+            </div>
+
+            <div class="form-group">
+                <div class="checkbox-group">
+                    <input type="checkbox" id="useIntuvioBrandGuidelines">
+                    <label for="useIntuvioBrandGuidelines">Intuvio Brand Guidelines</label>
+                </div>
+                <small class="checkbox-description">Font: Inter Tight. Primær: hvit, #211446, #83AEEA; knapper: #6C3DED. Sekundær: #D4A7F4, #A1DF83, #EBD16A, #EA9460, #ED6060. Reglene legges til prompten når valget er huket av. Kontroller typografien i ferdige bilder.</small>
             </div>
 
             <div class="form-group">
@@ -1063,6 +1072,7 @@ Treat this strictly as photographic restoration and color correction, not scene 
 
             const formData = new FormData();
             formData.append('prompt', prompt);
+            formData.append('useIntuvioBrandGuidelines', document.getElementById('useIntuvioBrandGuidelines').checked ? 'true' : 'false');
             formData.append('aspectRatio', aspectRatio);
             formData.append('resolution', resolution);
             formData.append('openaiSizeMode', openaiSizeMode);
