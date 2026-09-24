@@ -1,6 +1,6 @@
 const express = require('express');
 const multer = require('multer');
-const { GoogleGenerativeAI } = require('@google/generative-ai');
+const { GoogleGenAI } = require('@google/genai');
 const fs = require('fs');
 const path = require('path');
 const cors = require('cors');
@@ -446,7 +446,11 @@ const upload = multer({
   }
 });
 
-const genAI = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY);
+const GOOGLE_API_BASE_URL = readEnv('GOOGLE_API_BASE_URL');
+const genAI = new GoogleGenAI({
+  apiKey: readEnv('GOOGLE_API_KEY'),
+  ...(GOOGLE_API_BASE_URL ? { httpOptions: { baseUrl: GOOGLE_API_BASE_URL } } : {})
+});
 const OPENAI_API_KEY = readEnv('OPENAI_API_KEY');
 const OPENAI_API_BASE_URL = readEnv('OPENAI_API_BASE_URL') || 'https://api.openai.com/v1';
 const XAI_API_KEY = readEnv('XAI_API_KEY');
@@ -457,17 +461,38 @@ const BFL_POLL_INTERVAL_MS = readEnvNumber('BFL_POLL_INTERVAL_MS', 750);
 const BFL_POLL_TIMEOUT_MS = readEnvNumber('BFL_POLL_TIMEOUT_SECONDS', 120) * 1000;
 
 const IMAGE_MODEL_CONFIGS = {
-  'gemini-3.1-flash-image-preview': {
-    label: 'Gemini 3.1 Flash Image Preview',
+  'gemini-3.1-flash-image': {
+    label: 'Gemini 3.1 Flash Image',
     provider: 'google',
     supportsAspectRatio: true,
     supportsGoogleSearch: false
   },
-  'gemini-3-pro-image-preview': {
-    label: 'Gemini 3 Pro Image Preview',
+  'gemini-3.1-flash-lite-image': {
+    label: 'Gemini 3.1 Flash Lite Image',
+    provider: 'google',
+    supportsAspectRatio: true,
+    supportsGoogleSearch: false,
+    maxResolution: '1K'
+  },
+  'gemini-3-pro-image': {
+    label: 'Gemini 3 Pro Image',
     provider: 'google',
     supportsAspectRatio: true,
     supportsGoogleSearch: false
+  },
+  'gpt-image-2.5-sunburst': {
+    label: 'GPT Image 2.5 Sunburst',
+    provider: 'openai',
+    supportsAspectRatio: true,
+    supportsGoogleSearch: false,
+    supportsExactSize: true
+  },
+  'gpt-image-2.5-flare': {
+    label: 'GPT Image 2.5 Flare',
+    provider: 'openai',
+    supportsAspectRatio: true,
+    supportsGoogleSearch: false,
+    supportsExactSize: true
   },
   'gpt-image-2': {
     label: 'GPT Image 2',
@@ -492,7 +517,7 @@ const IMAGE_MODEL_CONFIGS = {
     maxInputImages: 10
   }
 };
-const DEFAULT_IMAGE_MODEL = 'gpt-image-2';
+const DEFAULT_IMAGE_MODEL = 'gpt-image-2.5-sunburst';
 const DEFAULT_IMAGE_RESOLUTION = '1K';
 // Gemini inline requests must stay below 20 MB in total. Keeping the raw image
 // payload below 14 MiB also leaves room for base64 expansion and prompt data.
@@ -722,7 +747,7 @@ function nearestValidOpenAIImageSize(desiredWidth, desiredHeight) {
   }
 
   if (!best) {
-    throw new Error('Klarte ikke finne en gyldig GPT Image 2-storrelse for valgt aspektforhold.');
+    throw new Error('Klarte ikke finne en gyldig GPT Image-storrelse for valgt aspektforhold.');
   }
 
   return `${best.width}x${best.height}`;
@@ -747,27 +772,27 @@ function validateExactOpenAIImageSize(widthValue, heightValue) {
   const height = Number(heightValue);
 
   if (!Number.isInteger(width) || !Number.isInteger(height)) {
-    throw new Error('Eksakt GPT Image 2-storrelse ma ha gyldig bredde og hoyde.');
+    throw new Error('Eksakt GPT Image-storrelse ma ha gyldig bredde og hoyde.');
   }
   if (width <= 0 || height <= 0) {
-    throw new Error('Eksakt GPT Image 2-storrelse ma vaere storre enn 0 px.');
+    throw new Error('Eksakt GPT Image-storrelse ma vaere storre enn 0 px.');
   }
   if (width > OPENAI_MAX_IMAGE_EDGE || height > OPENAI_MAX_IMAGE_EDGE) {
-    throw new Error(`GPT Image 2 tillater maks ${OPENAI_MAX_IMAGE_EDGE}px pa lengste kant.`);
+    throw new Error(`GPT Image tillater maks ${OPENAI_MAX_IMAGE_EDGE}px pa lengste kant.`);
   }
   if (width % OPENAI_SIZE_MULTIPLE !== 0 || height % OPENAI_SIZE_MULTIPLE !== 0) {
-    throw new Error(`GPT Image 2 krever at bredde og hoyde er delelige med ${OPENAI_SIZE_MULTIPLE}.`);
+    throw new Error(`GPT Image krever at bredde og hoyde er delelige med ${OPENAI_SIZE_MULTIPLE}.`);
   }
 
   const longEdge = Math.max(width, height);
   const shortEdge = Math.min(width, height);
   if (longEdge / shortEdge > OPENAI_MAX_IMAGE_RATIO) {
-    throw new Error(`GPT Image 2 tillater maks ${OPENAI_MAX_IMAGE_RATIO}:1 forhold mellom lengste og korteste kant.`);
+    throw new Error(`GPT Image tillater maks ${OPENAI_MAX_IMAGE_RATIO}:1 forhold mellom lengste og korteste kant.`);
   }
 
   const totalPixels = width * height;
   if (totalPixels < OPENAI_MIN_IMAGE_PIXELS || totalPixels > OPENAI_MAX_IMAGE_PIXELS) {
-    throw new Error(`GPT Image 2 krever mellom ${OPENAI_MIN_IMAGE_PIXELS.toLocaleString('nb-NO')} og ${OPENAI_MAX_IMAGE_PIXELS.toLocaleString('nb-NO')} pixler totalt.`);
+    throw new Error(`GPT Image krever mellom ${OPENAI_MIN_IMAGE_PIXELS.toLocaleString('nb-NO')} og ${OPENAI_MAX_IMAGE_PIXELS.toLocaleString('nb-NO')} pixler totalt.`);
   }
 
   return `${width}x${height}`;
@@ -929,7 +954,7 @@ function getOpenAIErrorMessage(status, responseData, responseText) {
 
 async function requestOpenAIImages(pathname, { jsonBody, formData }) {
   if (!OPENAI_API_KEY) {
-    throw new Error('OPENAI_API_KEY mangler. Sett miljovariabelen for a bruke GPT Image 2.');
+    throw new Error('OPENAI_API_KEY mangler. Sett miljovariabelen for a bruke GPT Image.');
   }
 
   const headers = {
@@ -1306,36 +1331,32 @@ async function generateWithGeminiImageModel(modelId, modelConfigMeta, requestCon
   let modelSucceeded = false;
 
   for (const attempt of attemptPlan) {
-    const generationConfig = {
-      temperature: 0.7,
-      maxOutputTokens: 2048,
+    const config = {
+      responseModalities: ['TEXT', 'IMAGE'],
       imageConfig: {
         imageSize: attempt.resolution
       }
     };
 
     if (attempt.includeAspectRatio) {
-      generationConfig.imageConfig.aspectRatio = aspectRatio;
+      config.imageConfig.aspectRatio = aspectRatio;
     }
 
-    const modelConfig = {
-      model: modelId,
-      generationConfig
-    };
-
     if (useGoogleSearch === 'true' && modelConfigMeta.supportsGoogleSearch) {
-      modelConfig.tools = [{ google_search: {} }];
+      config.tools = [{ googleSearch: {} }];
     }
 
     if (attempt.safetyMode === 'relaxed') {
-      modelConfig.safetySettings = RELAXED_SAFETY_SETTINGS;
+      config.safetySettings = RELAXED_SAFETY_SETTINGS;
     }
 
     try {
       console.log(`Calling model: ${modelId} (attempt=${attempt.label}, resolution=${attempt.resolution}, aspectRatio=${attempt.includeAspectRatio ? aspectRatio : 'none'}, safety=${attempt.safetyMode})`);
-      const model = genAI.getGenerativeModel(modelConfig);
-      const result = await model.generateContent(parts);
-      const response = await result.response;
+      const response = await genAI.models.generateContent({
+        model: modelId,
+        contents: [{ role: 'user', parts: parts.map((part) => typeof part === 'string' ? { text: part } : part) }],
+        config
+      });
       const candidates = response.candidates || [];
       const debugSummary = summarizeResponseForDebug(response);
       modelResult.debug.attempts.push({
@@ -1396,7 +1417,7 @@ async function generateWithGeminiImageModel(modelId, modelConfigMeta, requestCon
       modelResult.error = message;
 
       // Retry only for model-content issues; invalid API key/quota should fail fast.
-      if (message.includes('API_KEY') || message.includes('quota') || message.includes('QUOTA_EXCEEDED')) {
+      if (message.includes('API_KEY') || message.includes('quota') || message.includes('QUOTA_EXCEEDED') || message.includes('INVALID_ARGUMENT') || message.includes('not found')) {
         break;
       }
     }
@@ -1474,6 +1495,16 @@ app.post('/generate', generateIpRateLimiter, generateUserRateLimiter, upload.arr
       return res.status(400).json({
         error: `Ingen gyldige modeller valgt. Tillatte modeller: ${Object.keys(IMAGE_MODEL_CONFIGS).join(', ')}`
       });
+    }
+
+    const limitedModel = selectedModels.find((modelId) => {
+      const maxResolution = IMAGE_MODEL_CONFIGS[modelId].maxResolution;
+      return maxResolution && resolution !== maxResolution;
+    });
+    if (limitedModel) {
+      cleanupUploadedFiles(req.files);
+      const modelConfig = IMAGE_MODEL_CONFIGS[limitedModel];
+      return res.status(400).json({ error: `${modelConfig.label} stotter bare ${modelConfig.maxResolution}-opplosning.` });
     }
 
     const bflFileValidationError = validateBflInputFiles(req.files, selectedModels);
@@ -1643,9 +1674,11 @@ app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
-app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
-});
+if (require.main === module) {
+  app.listen(PORT, () => {
+    console.log(`Server running on port ${PORT}`);
+  });
+}
 
 app.use((error, req, res, next) => {
   if (error instanceof multer.MulterError) {
@@ -1664,3 +1697,5 @@ app.use((error, req, res, next) => {
 
   return next(error);
 });
+
+module.exports = app;

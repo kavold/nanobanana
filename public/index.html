@@ -542,24 +542,45 @@
                 <label>Modellvalg:</label>
                 <div class="model-select-grid">
                     <label class="model-option">
-                        <input type="checkbox" name="models" value="gemini-3.1-flash-image-preview">
+                        <input type="checkbox" name="models" value="gemini-3.1-flash-image">
                         <span>
-                            <strong>Gemini 3.1 Flash Image Preview</strong>
+                            <strong>Gemini 3.1 Flash Image</strong>
                             <small>Raskt valg for ideer, utkast og flere varianter når du vil prøve deg frem.</small>
                         </span>
                     </label>
                     <label class="model-option">
-                        <input type="checkbox" name="models" value="gemini-3-pro-image-preview">
+                        <input type="checkbox" name="models" value="gemini-3.1-flash-lite-image">
                         <span>
-                            <strong>Gemini 3 Pro Image Preview</strong>
+                            <strong>Gemini 3.1 Flash Lite Image</strong>
+                            <small>Rimelig og raskt valg. Støtter bare 1K-oppløsning.</small>
+                        </span>
+                    </label>
+                    <label class="model-option">
+                        <input type="checkbox" name="models" value="gemini-3-pro-image">
+                        <span>
+                            <strong>Gemini 3 Pro Image</strong>
                             <small>Bruk denne når kvalitet, detaljer og et mer gjennomarbeidet uttrykk er viktigst.</small>
                         </span>
                     </label>
                     <label class="model-option">
-                        <input type="checkbox" name="models" value="gpt-image-2" checked>
+                        <input type="checkbox" name="models" value="gpt-image-2.5-sunburst" checked>
+                        <span>
+                            <strong>GPT Image 2.5 Sunburst</strong>
+                            <small>Standardvalget for presis redigering og høy bildekvalitet. Støtter eksakt pixelstørrelse.</small>
+                        </span>
+                    </label>
+                    <label class="model-option">
+                        <input type="checkbox" name="models" value="gpt-image-2.5-flare">
+                        <span>
+                            <strong>GPT Image 2.5 Flare</strong>
+                            <small>Raskt OpenAI-valg for bildegenerering og redigering. Støtter eksakt pixelstørrelse.</small>
+                        </span>
+                    </label>
+                    <label class="model-option">
+                        <input type="checkbox" name="models" value="gpt-image-2">
                         <span>
                             <strong>GPT Image 2</strong>
-                            <small>Standardvalget. Erfaringen er at den ofte er best på å bevare personlikhet fra referansebilder, og den støtter eksakt pixelstørrelse.</small>
+                            <small>Tidligere modell, beholdt for sammenligning. Støtter eksakt pixelstørrelse.</small>
                         </span>
                     </label>
                     <label class="model-option">
@@ -580,14 +601,14 @@
             </div>
 
             <div class="form-group" id="openaiSizeControls" style="display: none;">
-                <label for="openaiSizeMode">GPT Image 2-størrelse:</label>
+                <label for="openaiSizeMode">GPT Image-størrelse:</label>
                 <select id="openaiSizeMode">
                     <option value="aspect" selected>Bruk aspektforhold og oppløsning</option>
                     <option value="auto">Auto</option>
                     <option value="exact">Eksakt pixelstørrelse</option>
                 </select>
                 <small class="size-mode-description">
-                    Eksakt pixelstørrelse er bare tilgjengelig når GPT Image 2 er eneste valgte modell. Ved sammenligning brukes felles aspektforhold og oppløsning.
+                    Auto og eksakt pixelstørrelse er tilgjengelig når én GPT Image-modell er valgt. Ved sammenligning brukes felles aspektforhold og oppløsning.
                 </small>
                 <div id="openaiExactSizeFields" class="exact-size-grid" style="display: none;">
                     <div>
@@ -820,7 +841,8 @@
             return html;
         }
 
-        const GPT_IMAGE_2_MODEL = 'gpt-image-2';
+        const OPENAI_IMAGE_MODELS = new Set(['gpt-image-2.5-sunburst', 'gpt-image-2.5-flare', 'gpt-image-2']);
+        const GEMINI_FLASH_LITE_IMAGE_MODEL = 'gemini-3.1-flash-lite-image';
         const GROK_IMAGINE_IMAGE_MODEL = 'grok-imagine-image-2.0';
         const FLUX_2_MAX_MODEL = 'flux-2-max';
         const OPENAI_MIN_IMAGE_PIXELS = 655360;
@@ -866,9 +888,9 @@ Treat this strictly as photographic restoration and color correction, not scene 
             return Array.from(document.querySelectorAll('input[name="models"]:checked')).map(input => input.value);
         }
 
-        function isOnlyGptImage2Selected() {
+        function isOnlyOpenAIImageSelected() {
             const selectedModels = getSelectedModels();
-            return selectedModels.length === 1 && selectedModels[0] === GPT_IMAGE_2_MODEL;
+            return selectedModels.length === 1 && OPENAI_IMAGE_MODELS.has(selectedModels[0]);
         }
 
         function isFlux2MaxSelected() {
@@ -906,7 +928,7 @@ Treat this strictly as photographic restoration and color correction, not scene 
                 return 'Bredde og høyde må være større enn 0 px.';
             }
             if (width > OPENAI_MAX_IMAGE_EDGE || height > OPENAI_MAX_IMAGE_EDGE) {
-                return `GPT Image 2 tillater maks ${OPENAI_MAX_IMAGE_EDGE}px på lengste kant.`;
+                return `GPT Image tillater maks ${OPENAI_MAX_IMAGE_EDGE}px på lengste kant.`;
             }
             if (width % OPENAI_SIZE_MULTIPLE !== 0 || height % OPENAI_SIZE_MULTIPLE !== 0) {
                 return `Bredde og høyde må være delelige med ${OPENAI_SIZE_MULTIPLE}.`;
@@ -946,24 +968,25 @@ Treat this strictly as photographic restoration and color correction, not scene 
         }
 
         function updateSizeControls() {
-            const onlyGptImage2 = isOnlyGptImage2Selected();
+            const onlyOpenAIImage = isOnlyOpenAIImageSelected();
             const onlyFlux2Max = isOnlyFlux2MaxSelected();
             const selectedModels = getSelectedModels();
-            const hasGptImage2 = selectedModels.includes(GPT_IMAGE_2_MODEL);
+            const hasOpenAIImage = selectedModels.some((model) => OPENAI_IMAGE_MODELS.has(model));
             const hasGrokImagine = selectedModels.includes(GROK_IMAGINE_IMAGE_MODEL);
             const hasFlux2Max = selectedModels.includes(FLUX_2_MAX_MODEL);
             const hasGemini = selectedModels.some((model) => model.startsWith('gemini-'));
+            const hasGeminiFlashLite = selectedModels.includes(GEMINI_FLASH_LITE_IMAGE_MODEL);
             const openaiSizeMode = document.getElementById('openaiSizeMode').value;
             const bflSizeMode = document.getElementById('bflSizeMode').value;
-            const showSharedSizeControls = (!onlyGptImage2 || openaiSizeMode === 'aspect') && (!onlyFlux2Max || bflSizeMode === 'aspect');
-            const showExactSizeFields = onlyGptImage2 && openaiSizeMode === 'exact';
+            const showSharedSizeControls = (!onlyOpenAIImage || openaiSizeMode === 'aspect') && (!onlyFlux2Max || bflSizeMode === 'aspect');
+            const showExactSizeFields = onlyOpenAIImage && openaiSizeMode === 'exact';
             const showBflExactSizeFields = onlyFlux2Max && bflSizeMode === 'exact';
             const openaiWidthInput = document.getElementById('openaiWidth');
             const openaiHeightInput = document.getElementById('openaiHeight');
             const bflWidthInput = document.getElementById('bflWidth');
             const bflHeightInput = document.getElementById('bflHeight');
 
-            document.getElementById('openaiSizeControls').style.display = onlyGptImage2 ? 'block' : 'none';
+            document.getElementById('openaiSizeControls').style.display = onlyOpenAIImage ? 'block' : 'none';
             document.getElementById('openaiExactSizeFields').style.display = showExactSizeFields ? 'grid' : 'none';
             document.getElementById('bflSizeControls').style.display = onlyFlux2Max ? 'block' : 'none';
             document.getElementById('bflExactSizeFields').style.display = showBflExactSizeFields ? 'grid' : 'none';
@@ -973,6 +996,13 @@ Treat this strictly as photographic restoration and color correction, not scene 
             openaiHeightInput.disabled = !showExactSizeFields;
             bflWidthInput.disabled = !showBflExactSizeFields;
             bflHeightInput.disabled = !showBflExactSizeFields;
+            const resolutionSelect = document.getElementById('resolution');
+            for (const option of resolutionSelect.options) {
+                option.disabled = hasGeminiFlashLite && option.value !== '1K';
+            }
+            if (hasGeminiFlashLite) {
+                resolutionSelect.value = '1K';
+            }
 
             if (hasGrokImagine) {
                 document.getElementById('imageHelpText').textContent = selectedModels.length > 1
@@ -982,9 +1012,9 @@ Treat this strictly as photographic restoration and color correction, not scene 
                 document.getElementById('imageHelpText').textContent = 'Last opp inntil 10 bilder når FLUX.2 Max er valgt. Store bilder tilpasses automatisk til den strengeste valgte modellen.';
             } else if (hasFlux2Max) {
                 document.getElementById('imageHelpText').textContent = 'Last opp inntil 10 bilder når FLUX.2 Max er valgt. Store mobilbilder forminskes automatisk før modellkallet.';
-            } else if (hasGptImage2 && hasGemini) {
+            } else if (hasOpenAIImage && hasGemini) {
                 document.getElementById('imageHelpText').textContent = 'Last opp inntil 14 bilder som referanse. Bildene tilpasses automatisk til Geminis samlede inline-grense ved sammenligning.';
-            } else if (onlyGptImage2) {
+            } else if (onlyOpenAIImage) {
                 document.getElementById('imageHelpText').textContent = 'Last opp inntil 14 bilder som referanse. Store mobilbilder roteres, konverteres og forminskes automatisk før modellkallet.';
             } else {
                 document.getElementById('imageHelpText').textContent = 'Last opp inntil 14 bilder som referanse. Bildene forminskes automatisk slik at hele Gemini-forespørselen holder seg under inline-grensen.';
@@ -1026,7 +1056,7 @@ Treat this strictly as photographic restoration and color correction, not scene 
                 alert('Velg minst en modell.');
                 return;
             }
-            if (isOnlyGptImage2Selected() && openaiSizeMode === 'exact') {
+            if (isOnlyOpenAIImageSelected() && openaiSizeMode === 'exact') {
                 const exactSizeError = validateExactOpenAIImageSize(openaiWidth, openaiHeight);
                 if (exactSizeError) {
                     alert(exactSizeError);

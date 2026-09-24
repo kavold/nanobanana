@@ -8,10 +8,13 @@ Node.js/Express-app for bildegenerering og bilderedigering med Gemini, GPT Image
 - Redigering med opptil 14 referansebilder, avhengig av valgt modell
 - Ferdig redigerbar prompt for konservativ restaurering av gamle fotografier
 - Valg av aspektforhold og opplosning
-- Eksakt pixelstorrelse for GPT Image 2 nar modellen brukes alene
+- Eksakt pixelstorrelse for GPT Image-modeller nar en av dem brukes alene
 - Modellvalg per request:
-  - `gemini-3.1-flash-image-preview`
-  - `gemini-3-pro-image-preview`
+  - `gemini-3.1-flash-image`
+  - `gemini-3.1-flash-lite-image` (kun 1K)
+  - `gemini-3-pro-image`
+  - `gpt-image-2.5-sunburst` (standard)
+  - `gpt-image-2.5-flare`
   - `gpt-image-2`
   - `grok-imagine-image-2.0`
   - `flux-2-max`
@@ -19,6 +22,8 @@ Node.js/Express-app for bildegenerering og bilderedigering med Gemini, GPT Image
 - Nedlasting av genererte bilder fra webgrensesnittet
 
 ## Oppsett lokalt
+
+Krever Node.js 20 eller nyere (Google GenAI SDK).
 
 1. Installer avhengigheter:
    ```bash
@@ -31,6 +36,7 @@ Node.js/Express-app for bildegenerering og bilderedigering med Gemini, GPT Image
 3. Sett verdier i `.env`:
    ```env
    GOOGLE_API_KEY=din_google_api_nokkel
+   GOOGLE_API_BASE_URL=
    OPENAI_API_KEY=din_openai_api_nokkel
    OPENAI_API_BASE_URL=
    XAI_API_KEY=din_xai_api_nokkel
@@ -102,17 +108,18 @@ Alle grenser kan justeres via miljo-variabler i `.env`/Railway.
     - `images` (valgfritt, opptil 14 filer)
       - Bilder, inkludert HEIC/HEIF fra mobilkamera, auto-roteres og konverteres til WebP med maks 2048 px lengste kant for modellkallet
       - Gemini-bilder komprimeres til en samlet rådatabudsjett på 14 MiB, slik at inline-requesten holder seg under leverandorens totalgrense på 20 MB etter base64 og promptdata
-      - Merk: GPT Image 2 bruker OpenAI `/images/edits` nar referansebilder lastes opp. OpenAI stotter ett eller flere referansebilder, men dette er ikke helt samme modellatferd som Gemini.
+      - Merk: GPT Image-modellene bruker OpenAI `/images/edits` nar referansebilder lastes opp. OpenAI stotter ett eller flere referansebilder, men dette er ikke helt samme modellatferd som Gemini.
       - Merk: Grok Imagine bruker xAI `/images/generations` og `/images/edits`, med opptil 3 referansebilder. Referansebildene sendes som base64-data-URL-er.
       - Merk: FLUX.2 Max bruker BFL sitt asynkrone `/flux-2-max`-endepunkt. Appen sender opptil 10 referansebilder og maks 20 MiB per ferdigbehandlet fil.
     - `aspectRatio` (valgfritt, standard `16:9`)
     - `resolution` (valgfritt, standard `1K`)
+      - Gemini 3.1 Flash Lite Image stotter bare `1K`; foresporsler med `2K` eller `4K` avvises.
       - Grok Imagine stotter `1K` og `2K`; et felles `4K`-valg mappes til `2K` for Grok.
       - Aspektforhold som xAI ikke stotter direkte mappes til naermeste stottede forhold.
     - `openaiSizeMode` (valgfritt, standard `aspect`)
-      - `aspect`: GPT Image 2 mappes til valgt `aspectRatio` + `resolution`
-      - `auto`: kun tilgjengelig nar bare `gpt-image-2` er valgt
-      - `exact`: kun tilgjengelig nar bare `gpt-image-2` er valgt
+      - `aspect`: valgt GPT Image-modell mappes til `aspectRatio` + `resolution`
+      - `auto`: tilgjengelig nar en GPT Image-modell er eneste valgte modell
+      - `exact`: tilgjengelig nar en GPT Image-modell er eneste valgte modell
     - `openaiWidth` og `openaiHeight` (pakrevd ved `openaiSizeMode=exact`)
       - Maks kant: `3840px`
       - Begge kanter ma vaere delelige med `16`
@@ -126,8 +133,11 @@ Alle grenser kan justeres via miljo-variabler i `.env`/Railway.
       - Min kant: `64px`
       - Totalt antall pixler ma vaere maks `4194304`
     - `models` (valgfritt, kan sendes flere ganger for sammenligning)
-      - `gemini-3.1-flash-image-preview`
-      - `gemini-3-pro-image-preview`
+      - `gemini-3.1-flash-image`
+      - `gemini-3.1-flash-lite-image`
+      - `gemini-3-pro-image`
+      - `gpt-image-2.5-sunburst`
+      - `gpt-image-2.5-flare`
       - `gpt-image-2`
       - `grok-imagine-image-2.0`
       - `flux-2-max`
@@ -151,6 +161,7 @@ Appen er klar for Railway med standard Node deploy:
 - `PORT` leses fra miljoet
 - Sett disse variablene i Railway:
   - `GOOGLE_API_KEY`
+  - `GOOGLE_API_BASE_URL` (valgfritt, standard Google API)
   - `OPENAI_API_KEY`
   - `XAI_API_KEY`
   - `XAI_API_BASE_URL` (valgfritt, standard `https://api.x.ai/v1`)
