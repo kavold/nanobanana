@@ -22,12 +22,23 @@ test('default, exact sizes, and Lite resolution use the selected model capabilit
     const requestBody = Buffer.concat(chunks).toString();
     upstreamRequests.push({
       path: req.url,
-      body: req.headers['content-type'].includes('application/json') ? JSON.parse(requestBody) : requestBody
+      body: requestBody && (req.headers['content-type'] || '').includes('application/json') ? JSON.parse(requestBody) : requestBody
     });
+    if (req.url === '/sample') {
+      res.writeHead(200, { 'Content-Type': 'image/png' });
+      res.end(Buffer.from(ONE_PIXEL_PNG, 'base64'));
+      return;
+    }
     res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify(req.url.includes(':generateContent')
-      ? { candidates: [{ content: { parts: [{ inlineData: { mimeType: 'image/png', data: ONE_PIXEL_PNG } }] } }] }
-      : { data: [{ b64_json: ONE_PIXEL_PNG }] }));
+    const serverBase = `http://${req.headers.host}`;
+    const responseBody = req.url === '/flux-2-max'
+      ? { polling_url: `${serverBase}/poll` }
+      : req.url === '/poll'
+        ? { status: 'Ready', result: { sample: `${serverBase}/sample` } }
+        : req.url.includes(':generateContent')
+          ? { candidates: [{ content: { parts: [{ inlineData: { mimeType: 'image/png', data: ONE_PIXEL_PNG } }] } }] }
+          : { data: [{ b64_json: ONE_PIXEL_PNG }] };
+    res.end(JSON.stringify(responseBody));
   });
   await listen(upstream);
   t.after(() => close(upstream));
@@ -38,6 +49,10 @@ test('default, exact sizes, and Lite resolution use the selected model capabilit
   process.env.OPENAI_API_KEY = 'test-key';
   process.env.OPENAI_API_BASE_URL = `http://127.0.0.1:${upstream.address().port}`;
   process.env.GOOGLE_API_BASE_URL = `http://127.0.0.1:${upstream.address().port}`;
+  process.env.XAI_API_KEY = 'test-key';
+  process.env.XAI_API_BASE_URL = `http://127.0.0.1:${upstream.address().port}`;
+  process.env.BFL_API_KEY = 'test-key';
+  process.env.BFL_API_BASE_URL = `http://127.0.0.1:${upstream.address().port}`;
   const app = require('../server');
   const server = http.createServer(app);
   await listen(server);
@@ -56,8 +71,9 @@ test('default, exact sizes, and Lite resolution use the selected model capabilit
     const form = new FormData();
     form.set('prompt', 'A test image');
     for (const [key, value] of Object.entries(fields)) form.set(key, value);
-    if (withReferenceImage) {
-      form.set('images', new Blob([Buffer.from(ONE_PIXEL_PNG, 'base64')], { type: 'image/png' }), 'reference.png');
+    const imageCount = withReferenceImage === true ? 1 : Number(withReferenceImage) || 0;
+    for (let index = 0; index < imageCount; index++) {
+      form.append('images', new Blob([Buffer.from(ONE_PIXEL_PNG, 'base64')], { type: 'image/png' }), `reference-${index}.png`);
     }
     const response = await fetch(`${base}/generate`, { method: 'POST', headers: { Cookie: cookie }, body: form });
     const data = await response.json();
@@ -72,7 +88,7 @@ test('default, exact sizes, and Lite resolution use the selected model capabilit
   assert.equal(defaultResult.data.results[0].model, 'gpt-image-2.5-sunburst');
   assert.equal(upstreamRequests[0].path, '/images/generations');
   assert.equal(upstreamRequests[0].body.model, 'gpt-image-2.5-sunburst');
-  assert.equal(upstreamRequests[0].body.prompt, 'A test image');
+  assert.match(upstreamRequests[0].body.prompt, /^A test image\n\nDo not include any logo/);
 
   const exactResult = await generate({
     models: 'gpt-image-2.5-flare',
@@ -108,8 +124,55 @@ test('default, exact sizes, and Lite resolution use the selected model capabilit
   for (const rule of ['Inter Tight', '#FFFFFF', '#211446', '#83AEEA', '#6C3DED', '#D4A7F4', '#A1DF83', '#EBD16A', '#EA9460', '#ED6060']) {
     assert.ok(openaiPrompt.includes(rule), `Missing brand rule: ${rule}`);
   }
+  assert.match(openaiPrompt, /Never add visible text, numbers, labels, slogans, URLs/);
+  assert.match(openaiPrompt, /No logo was selected as input/);
 
   const brandedGemini = await generate({ models: 'gemini-3.1-flash-lite-image', useIntuvioBrandGuidelines: 'true' });
   assert.equal(brandedGemini.response.status, 200);
   assert.equal(upstreamRequests[5].body.contents[0].parts[0].text, openaiPrompt);
+
+  const logoFiles = {
+    'wordmark-color': 'intuvio-wordmark-color.png',
+    'wordmark-white': 'intuvio-wordmark-white.png',
+    'mark-color': 'intuvio-mark-color.png',
+    'mark-white': 'intuvio-mark-white.png'
+  };
+  for (const [logoId, filename] of Object.entries(logoFiles)) {
+    const result = await generate({
+      models: 'gemini-3.1-flash-lite-image',
+      useIntuvioLogo: 'true',
+      intuvioLogo: logoId
+    });
+    assert.equal(result.response.status, 200);
+    const request = upstreamRequests.at(-1).body;
+    assert.equal(request.contents[0].parts.length, 2);
+    assert.match(request.contents[0].parts[0].text, /final supplied reference image is the selected/);
+    assert.doesNotMatch(request.contents[0].parts[0].text, /No logo was selected as input/);
+    assert.equal(request.contents[0].parts[1].inlineData.data,
+      fs.readFileSync(path.join(__dirname, '..', 'public', 'brand', filename)).toString('base64'));
+  }
+
+  const logoEdit = await generate({ useIntuvioLogo: 'true', intuvioLogo: 'wordmark-color' });
+  assert.equal(logoEdit.response.status, 200);
+  assert.equal(upstreamRequests.at(-1).path, '/images/edits');
+  assert.match(upstreamRequests.at(-1).body, /intuvio-wordmark-color\.png/);
+
+  const xaiLogo = await generate({ models: 'grok-imagine-image-2.0', useIntuvioLogo: 'true', intuvioLogo: 'mark-color' });
+  assert.equal(xaiLogo.response.status, 200);
+  assert.equal(upstreamRequests.at(-1).body.model, 'grok-imagine-image-2.0');
+  assert.match(upstreamRequests.at(-1).body.image.url, /^data:image\/png;base64,/);
+  assert.match(upstreamRequests.at(-1).body.prompt, /selected Intuvio-logomark i farger/);
+
+  const bflLogo = await generate({ models: 'flux-2-max', useIntuvioLogo: 'true', intuvioLogo: 'mark-white' });
+  assert.equal(bflLogo.response.status, 200);
+  const bflRequest = upstreamRequests.findLast((request) => request.path === '/flux-2-max');
+  assert.equal(bflRequest.body.input_image,
+    fs.readFileSync(path.join(__dirname, '..', 'public', 'brand', 'intuvio-mark-white.png')).toString('base64'));
+
+  const requestCount = upstreamRequests.length;
+  const invalidLogo = await generate({ useIntuvioLogo: 'true', intuvioLogo: 'unknown' });
+  assert.equal(invalidLogo.response.status, 400);
+  const tooManyForGrok = await generate({ models: 'grok-imagine-image-2.0', useIntuvioLogo: 'true', intuvioLogo: 'mark-color' }, 3);
+  assert.equal(tooManyForGrok.response.status, 400);
+  assert.equal(upstreamRequests.length, requestCount);
 });

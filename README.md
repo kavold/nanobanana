@@ -8,6 +8,7 @@ Node.js/Express-app for bildegenerering og bilderedigering med Gemini, GPT Image
 - Redigering med opptil 14 referansebilder, avhengig av valgt modell
 - Ferdig redigerbar prompt for konservativ restaurering av gamle fotografier
 - Valgfri Intuvio Brand Guidelines-avhuking som legger font- og fargeregler til prompten for alle valgte modeller
+- Valgfritt logovalg med fire originale Intuvio-filer som sendes som referansebilder
 - Valg av aspektforhold og opplosning
 - Eksakt pixelstorrelse for GPT Image-modeller nar en av dem brukes alene
 - Modellvalg per request:
@@ -108,7 +109,12 @@ Alle grenser kan justeres via miljo-variabler i `.env`/Railway.
     - `prompt` (pakrevd)
     - `useIntuvioBrandGuidelines` (valgfritt, `true` eller `false`, standard `false`)
       - Nar `true` legges Inter Tight og Intuvios fargepalett til prompten som sendes til alle valgte modeller. Primar: hvit, `#211446`, `#83AEEA`; knapper: `#6C3DED`. Sekundar: `#D4A7F4`, `#A1DF83`, `#EBD16A`, `#EA9460`, `#ED6060`.
+      - Bildet skal ikke inneholde tekst som ikke er uttrykkelig spesifisert i prompten eller referansebildene.
       - Ved redigering av referansefoto gjelder paletten nye grafiske elementer; originalfotoets personer, produkter og farger skal bevares. Kontroller tekst og eksakt font i resultatet.
+    - `useIntuvioLogo` (valgfritt, `true` eller `false`, standard `false`)
+      - Nar `true` kreves `intuvioLogo`: `wordmark-color`, `wordmark-white`, `mark-color` eller `mark-white`. Den valgte originalfilen legges sist blant referansebildene for alle valgte modeller.
+      - Nar `false` ber prompten modellen om ikke a lage noen logo. Ingen logo skal konstrueres eller tegnes pa frihand.
+      - Logoen teller med i leverandorens grense for referansebilder. Det gir maks 13 egne bilder generelt, 9 med FLUX.2 Max og 2 med Grok Imagine.
     - `images` (valgfritt, opptil 14 filer)
       - Bilder, inkludert HEIC/HEIF fra mobilkamera, auto-roteres og konverteres til WebP med maks 2048 px lengste kant for modellkallet
       - Gemini-bilder komprimeres til en samlet rådatabudsjett på 14 MiB, slik at inline-requesten holder seg under leverandorens totalgrense på 20 MB etter base64 og promptdata

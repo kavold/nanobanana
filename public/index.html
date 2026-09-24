@@ -164,6 +164,39 @@
             color: #666;
             margin-top: 5px;
         }
+        .logo-options {
+            border: 0;
+            padding: 0;
+            margin: 12px 0 0;
+        }
+        .logo-options-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 10px;
+        }
+        .logo-option {
+            border: 2px solid rgba(221, 221, 221, 0.7);
+            border-radius: 10px;
+            padding: 10px;
+            cursor: pointer;
+        }
+        .logo-option:has(input:checked) {
+            border-color: #6C3DED;
+        }
+        .logo-option img {
+            display: block;
+            width: 100%;
+            height: 75px;
+            object-fit: contain;
+            border-radius: 6px;
+            margin-bottom: 8px;
+        }
+        .logo-option img.logo-on-dark {
+            background: #211446;
+        }
+        .logo-option img.logo-on-light {
+            background: #fff;
+        }
         textarea {
             height: 100px;
             resize: vertical;
@@ -531,7 +564,24 @@
                     <input type="checkbox" id="useIntuvioBrandGuidelines">
                     <label for="useIntuvioBrandGuidelines">Intuvio Brand Guidelines</label>
                 </div>
-                <small class="checkbox-description">Font: Inter Tight. Primær: hvit, #211446, #83AEEA; knapper: #6C3DED. Sekundær: #D4A7F4, #A1DF83, #EBD16A, #EA9460, #ED6060. Reglene legges til prompten når valget er huket av. Kontroller typografien i ferdige bilder.</small>
+                <small class="checkbox-description">Font: Inter Tight. Primær: hvit, #211446, #83AEEA; knapper: #6C3DED. Sekundær: #D4A7F4, #A1DF83, #EBD16A, #EA9460, #ED6060. Ingen annen tekst enn det du spesifiserer i prompt eller referansebilder. Kontroller typografien i ferdige bilder.</small>
+            </div>
+
+            <div class="form-group">
+                <div class="checkbox-group">
+                    <input type="checkbox" id="useIntuvioLogo">
+                    <label for="useIntuvioLogo">Bruk Intuvio-logo som referanse</label>
+                </div>
+                <small class="checkbox-description">Velg én av fire originale logofiler. Den sendes som referansebilde og teller med i bildegrensen. Når valget er av, instrueres modellen om å utelate logo.</small>
+                <fieldset id="intuvioLogoOptions" class="logo-options" disabled style="display: none;">
+                    <legend>Velg logo</legend>
+                    <div class="logo-options-grid">
+                        <label class="logo-option"><img class="logo-on-light" src="/brand/intuvio-wordmark-color.png" alt="Intuvio-logo i farger"><input type="radio" name="intuvioLogo" value="wordmark-color" checked> Logo i farger</label>
+                        <label class="logo-option"><img class="logo-on-dark" src="/brand/intuvio-wordmark-white.png" alt="Intuvio-logo i hvitt"><input type="radio" name="intuvioLogo" value="wordmark-white"> Logo i hvitt</label>
+                        <label class="logo-option"><img class="logo-on-light" src="/brand/intuvio-mark-color.png" alt="Intuvio-logomark i farger"><input type="radio" name="intuvioLogo" value="mark-color"> Logomark i farger</label>
+                        <label class="logo-option"><img class="logo-on-dark" src="/brand/intuvio-mark-white.png" alt="Intuvio-logomark i hvitt"><input type="radio" name="intuvioLogo" value="mark-white"> Logomark i hvitt</label>
+                    </div>
+                </fieldset>
             </div>
 
             <div class="form-group">
@@ -905,7 +955,16 @@ Treat this strictly as photographic restoration and color correction, not scene 
             if (isGrokImagineSelected()) {
                 maxImages = Math.min(maxImages, XAI_MAX_INPUT_IMAGES);
             }
-            return maxImages;
+            return maxImages - (document.getElementById('useIntuvioLogo').checked ? 1 : 0);
+        }
+
+        function updateLogoControls() {
+            const enabled = document.getElementById('useIntuvioLogo').checked;
+            const options = document.getElementById('intuvioLogoOptions');
+            options.disabled = !enabled;
+            options.style.display = enabled ? 'block' : 'none';
+            updateSizeControls();
+            updateImageCounter();
         }
 
         function isOnlyFlux2MaxSelected() {
@@ -972,6 +1031,7 @@ Treat this strictly as photographic restoration and color correction, not scene 
             const hasFlux2Max = selectedModels.includes(FLUX_2_MAX_MODEL);
             const hasGemini = selectedModels.some((model) => model.startsWith('gemini-'));
             const hasGeminiFlashLite = selectedModels.includes(GEMINI_FLASH_LITE_IMAGE_MODEL);
+            const maxImages = getMaxInputImages();
             const openaiSizeMode = document.getElementById('openaiSizeMode').value;
             const bflSizeMode = document.getElementById('bflSizeMode').value;
             const showSharedSizeControls = (!onlyOpenAIImage || openaiSizeMode === 'aspect') && (!onlyFlux2Max || bflSizeMode === 'aspect');
@@ -1002,20 +1062,22 @@ Treat this strictly as photographic restoration and color correction, not scene 
 
             if (hasGrokImagine) {
                 document.getElementById('imageHelpText').textContent = selectedModels.length > 1
-                    ? 'Last opp inntil 3 referansebilder når Grok Imagine sammenlignes med andre modeller. Bildene tilpasses automatisk før modellkallene.'
-                    : 'Grok Imagine støtter opptil 3 referansebilder. Store mobilbilder roteres, konverteres og forminskes automatisk før modellkallet.';
+                    ? `Last opp inntil ${maxImages} egne referansebilder når Grok Imagine sammenlignes med andre modeller. Bildene tilpasses automatisk før modellkallene.`
+                    : `Grok Imagine støtter opptil ${maxImages} egne referansebilder med dette logovalget. Store mobilbilder tilpasses automatisk før modellkallet.`;
             } else if (hasFlux2Max && hasGemini) {
-                document.getElementById('imageHelpText').textContent = 'Last opp inntil 10 bilder når FLUX.2 Max er valgt. Store bilder tilpasses automatisk til den strengeste valgte modellen.';
+                document.getElementById('imageHelpText').textContent = `Last opp inntil ${maxImages} egne bilder når FLUX.2 Max er valgt. Store bilder tilpasses automatisk til den strengeste valgte modellen.`;
             } else if (hasFlux2Max) {
-                document.getElementById('imageHelpText').textContent = 'Last opp inntil 10 bilder når FLUX.2 Max er valgt. Store mobilbilder forminskes automatisk før modellkallet.';
+                document.getElementById('imageHelpText').textContent = `Last opp inntil ${maxImages} egne bilder når FLUX.2 Max er valgt. Store mobilbilder forminskes automatisk før modellkallet.`;
             } else if (hasOpenAIImage && hasGemini) {
-                document.getElementById('imageHelpText').textContent = 'Last opp inntil 14 bilder som referanse. Bildene tilpasses automatisk til Geminis samlede inline-grense ved sammenligning.';
+                document.getElementById('imageHelpText').textContent = `Last opp inntil ${maxImages} egne bilder som referanse. Bildene tilpasses automatisk til Geminis samlede inline-grense ved sammenligning.`;
             } else if (onlyOpenAIImage) {
-                document.getElementById('imageHelpText').textContent = 'Last opp inntil 14 bilder som referanse. Store mobilbilder roteres, konverteres og forminskes automatisk før modellkallet.';
+                document.getElementById('imageHelpText').textContent = `Last opp inntil ${maxImages} egne bilder som referanse. Store mobilbilder roteres, konverteres og forminskes automatisk før modellkallet.`;
             } else {
-                document.getElementById('imageHelpText').textContent = 'Last opp inntil 14 bilder som referanse. Bildene forminskes automatisk slik at hele Gemini-forespørselen holder seg under inline-grensen.';
+                document.getElementById('imageHelpText').textContent = `Last opp inntil ${maxImages} egne bilder som referanse. Bildene forminskes automatisk slik at hele Gemini-forespørselen holder seg under inline-grensen.`;
             }
         }
+
+        let selectedFiles = [];
 
         document.querySelectorAll('input[name="models"]').forEach((input) => {
             input.addEventListener('change', () => {
@@ -1025,7 +1087,8 @@ Treat this strictly as photographic restoration and color correction, not scene 
         });
         document.getElementById('openaiSizeMode').addEventListener('change', updateSizeControls);
         document.getElementById('bflSizeMode').addEventListener('change', updateSizeControls);
-        updateSizeControls();
+        document.getElementById('useIntuvioLogo').addEventListener('change', updateLogoControls);
+        updateLogoControls();
 
         document.getElementById('generateForm').addEventListener('submit', async function(e) {
             e.preventDefault();
@@ -1073,6 +1136,11 @@ Treat this strictly as photographic restoration and color correction, not scene 
             const formData = new FormData();
             formData.append('prompt', prompt);
             formData.append('useIntuvioBrandGuidelines', document.getElementById('useIntuvioBrandGuidelines').checked ? 'true' : 'false');
+            const useIntuvioLogo = document.getElementById('useIntuvioLogo').checked;
+            formData.append('useIntuvioLogo', useIntuvioLogo ? 'true' : 'false');
+            if (useIntuvioLogo) {
+                formData.append('intuvioLogo', document.querySelector('input[name="intuvioLogo"]:checked').value);
+            }
             formData.append('aspectRatio', aspectRatio);
             formData.append('resolution', resolution);
             formData.append('openaiSizeMode', openaiSizeMode);
@@ -1150,8 +1218,6 @@ Treat this strictly as photographic restoration and color correction, not scene 
             }
         });
         
-
-        let selectedFiles = [];
 
         function removeImage(index) {
             selectedFiles.splice(index, 1);

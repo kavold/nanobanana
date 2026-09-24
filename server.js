@@ -519,17 +519,42 @@ const IMAGE_MODEL_CONFIGS = {
 };
 const DEFAULT_IMAGE_MODEL = 'gpt-image-2.5-sunburst';
 const DEFAULT_IMAGE_RESOLUTION = '1K';
+const INTUVIO_LOGOS = {
+  'wordmark-color': { label: 'Intuvio-logo i farger', filename: 'intuvio-wordmark-color.png' },
+  'wordmark-white': { label: 'Intuvio-logo i hvitt', filename: 'intuvio-wordmark-white.png' },
+  'mark-color': { label: 'Intuvio-logomark i farger', filename: 'intuvio-mark-color.png' },
+  'mark-white': { label: 'Intuvio-logomark i hvitt', filename: 'intuvio-mark-white.png' }
+};
 const INTUVIO_BRAND_GUIDELINES = `Intuvio Brand Guidelines for this image:
-- Use Inter Tight for all visible typography. If exact font rendering is unavailable, make the lettering as close to Inter Tight as possible; keep text legible and correctly spelled.
+- Use Inter Tight for any visible typography. If exact font rendering is unavailable, make the lettering as close to Inter Tight as possible.
 - Primary colors: white (#FFFFFF), deep purple (#211446), and light blue (#83AEEA). Use #6C3DED for buttons and calls to action.
 - Secondary colors, for restrained accents only: #D4A7F4, #A1DF83, #EBD16A, #EA9460, and #ED6060.
-- Keep graphic elements, backgrounds, and any added text within this palette. Maintain clear contrast and a consistent Intuvio look.
+- Never add visible text, numbers, labels, slogans, URLs, or other lettering that is not explicitly specified in the input prompt or supplied reference images. Copy specified text exactly; do not invent filler text.
+- Keep graphic elements, backgrounds, and permitted text within this palette. Maintain clear contrast and a consistent Intuvio look.
 - When editing a reference photo, preserve the original people, products, and photographic colors unless the user explicitly asks to change them. Apply these brand rules to new graphic elements instead.`;
 
-function buildGenerationPrompt(prompt, useIntuvioBrandGuidelines) {
-  return useIntuvioBrandGuidelines === 'true'
-    ? `${prompt}\n\n${INTUVIO_BRAND_GUIDELINES}`
-    : prompt;
+function buildGenerationPrompt(prompt, useIntuvioBrandGuidelines, selectedLogo) {
+  const instructions = [prompt];
+  if (useIntuvioBrandGuidelines === 'true') {
+    instructions.push(INTUVIO_BRAND_GUIDELINES);
+  }
+  instructions.push(selectedLogo
+    ? `The final supplied reference image is the selected ${selectedLogo.label}. Use only that exact logo when a logo is needed in the output. Preserve its shape, proportions, colors, and lettering. Do not redraw, reinterpret, or invent any logo or additional brand mark.`
+    : 'Do not include any logo, wordmark, logomark, or invented brand symbol in the output. No logo was selected as input.');
+  return instructions.join('\n\n');
+}
+
+function getIntuvioLogoFile(logoId) {
+  if (!Object.hasOwn(INTUVIO_LOGOS, logoId)) return null;
+  const logo = INTUVIO_LOGOS[logoId];
+  const logoPath = path.join(__dirname, 'public', 'brand', logo.filename);
+  return {
+    path: logoPath,
+    mimetype: 'image/png',
+    originalname: logo.filename,
+    label: logo.label,
+    size: fs.statSync(logoPath).size
+  };
 }
 // Gemini inline requests must stay below 20 MB in total. Keeping the raw image
 // payload below 14 MiB also leaves room for base64 expansion and prompt data.
@@ -1494,6 +1519,8 @@ app.post('/generate', generateIpRateLimiter, generateUserRateLimiter, upload.arr
       bflHeight,
       useGoogleSearch,
       useIntuvioBrandGuidelines,
+      useIntuvioLogo,
+      intuvioLogo,
       models
     } = req.body;
 
@@ -1510,6 +1537,17 @@ app.post('/generate', generateIpRateLimiter, generateUserRateLimiter, upload.arr
       });
     }
 
+    const logoFile = useIntuvioLogo === 'true' ? getIntuvioLogoFile(intuvioLogo) : null;
+    if (useIntuvioLogo === 'true' && !logoFile) {
+      cleanupUploadedFiles(req.files);
+      return res.status(400).json({ error: 'Velg en gyldig Intuvio-logo.' });
+    }
+    const inputFiles = [...(req.files || []), ...(logoFile ? [logoFile] : [])];
+    if (inputFiles.length > 14) {
+      cleanupUploadedFiles(req.files);
+      return res.status(400).json({ error: 'Maksimalt 14 referansebilder totalt, inkludert valgt logo.' });
+    }
+
     const limitedModel = selectedModels.find((modelId) => {
       const maxResolution = IMAGE_MODEL_CONFIGS[modelId].maxResolution;
       return maxResolution && resolution !== maxResolution;
@@ -1520,13 +1558,13 @@ app.post('/generate', generateIpRateLimiter, generateUserRateLimiter, upload.arr
       return res.status(400).json({ error: `${modelConfig.label} stotter bare ${modelConfig.maxResolution}-opplosning.` });
     }
 
-    const bflFileValidationError = validateBflInputFiles(req.files, selectedModels);
+    const bflFileValidationError = validateBflInputFiles(inputFiles, selectedModels);
     if (bflFileValidationError) {
       cleanupUploadedFiles(req.files);
       return res.status(400).json({ error: bflFileValidationError });
     }
 
-    const xaiFileValidationError = validateXaiInputFiles(req.files, selectedModels);
+    const xaiFileValidationError = validateXaiInputFiles(inputFiles, selectedModels);
     if (xaiFileValidationError) {
       cleanupUploadedFiles(req.files);
       return res.status(400).json({ error: xaiFileValidationError });
@@ -1571,7 +1609,7 @@ app.post('/generate', generateIpRateLimiter, generateUserRateLimiter, upload.arr
       inputProcessing = await normalizeUploadedImages(req.files || [], {
         maxEdge: INPUT_IMAGE_MAX_EDGE,
         maxTotalBytes: hasGemini
-          ? GEMINI_INLINE_IMAGE_BUDGET_BYTES
+          ? GEMINI_INLINE_IMAGE_BUDGET_BYTES - (logoFile ? logoFile.size : 0)
           : BFL_MAX_INPUT_IMAGE_BYTES * fileCount,
         maxFileBytes: BFL_MAX_INPUT_IMAGE_BYTES
       });
@@ -1587,15 +1625,15 @@ app.post('/generate', generateIpRateLimiter, generateUserRateLimiter, upload.arr
       return res.status(429).json({ error: budgetResult.error });
     }
 
-    const generationPrompt = buildGenerationPrompt(prompt, useIntuvioBrandGuidelines);
+    const generationPrompt = buildGenerationPrompt(prompt, useIntuvioBrandGuidelines, logoFile);
 
     // Build parts array based on input
     const parts = [];
     parts.push(generationPrompt);
     
     // Add images after the prompt for Gemini. Other providers read the uploaded files directly in their adapters.
-    if (selectedModelsIncludeProvider(selectedModels, 'google') && req.files && req.files.length > 0) {
-      for (const file of req.files) {
+    if (selectedModelsIncludeProvider(selectedModels, 'google') && inputFiles.length > 0) {
+      for (const file of inputFiles) {
         const imagePart = fileToGenerativePart(file.path, file.mimetype);
         parts.push(imagePart);
       }
@@ -1603,13 +1641,14 @@ app.post('/generate', generateIpRateLimiter, generateUserRateLimiter, upload.arr
 
     console.log('Sending image generation request with prompt:', prompt);
     console.log('Intuvio brand guidelines:', useIntuvioBrandGuidelines === 'true' ? 'enabled' : 'disabled');
-    console.log('Number of input images:', req.files ? req.files.length : 0);
+    console.log('Intuvio logo:', logoFile ? intuvioLogo : 'none');
+    console.log('Number of input images:', inputFiles.length);
     console.log('Total parts in request:', parts.length);
 
     console.log(`Calling ${selectedModels.length} selected model(s) in parallel: ${selectedModels.join(', ')}`);
     const modelPromises = selectedModels.map((selectedModel) => generateWithSelectedImageModel(selectedModel, {
       prompt: generationPrompt,
-      files: req.files || [],
+      files: inputFiles,
       selectedModels,
       aspectRatio,
       resolution,
