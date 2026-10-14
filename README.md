@@ -186,3 +186,12 @@ Appen er klar for Railway med standard Node deploy:
   - `GENERATE_MAX_PER_HOUR` og `GENERATE_MAX_PER_DAY` (valgfritt)
 
 Merk: `uploads/` og `public/generated/` ligger pa lokal disk i containeren. Uten volume/storage vil filer kunne forsvinne ved restart/redeploy.
+
+
+### Filnavn og søkbare bildemetadata
+
+Nye bilder får filnavn basert på valgfri **Bildetittel**, eller starten av brukerens beskrivelse dersom tittelen er tom. Navnet inneholder også UTC-tid, modell og en tilfeldig ID for å skille varianter. Nedlastingen bruker dette navnet og riktig filendelse (PNG, JPG eller WebP), bestemt av det faktiske bildeformatet.
+
+Valgfrie **Søkeord** oppgis med komma eller semikolon. Tittel, brukerens beskrivelse, søkeord, modell og genereringstid lagres som XMP; EXIF inneholder også beskrivelse, søkeord og modell. Interne merkevareinstruksjoner legges ikke i beskrivelsen. Metadata følger med ved nedlasting og deling, inkludert brukerens prompt.
+
+Støtte for å indeksere metadata i Windows-søk, Spotlight og bildeprogrammer varierer med format og program. Filnavnet gir i tillegg et vanlig søkbart navn. Eksisterende bilder blir ikke endret. PNG og WebP skrives tapsfritt. For JPEG erstattes bare EXIF/XMP i filhodet, slik at de opprinnelige komprimerte bildedataene beholdes.

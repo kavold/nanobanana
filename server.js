@@ -7,6 +7,7 @@ const cors = require('cors');
 const crypto = require('crypto');
 const dotenv = require('dotenv');
 const { normalizeUploadedImages } = require('./image-processing');
+const { saveExportImage } = require('./image-export');
 const {
   XAI_MAX_INPUT_IMAGES,
   requestXaiImage,
@@ -925,41 +926,12 @@ function fileToGenerativePart(path, mimeType) {
   };
 }
 
-function saveInlineImage(base64Data, modelId) {
-  const imageBuffer = Buffer.from(base64Data, 'base64');
-  const modelSuffix = modelId.replace(/[^a-z0-9]+/gi, '-').toLowerCase();
-  const filename = `generated_${Date.now()}_${modelSuffix}.png`;
-  const generatedDir = path.join(__dirname, 'public', 'generated');
-  const filepath = path.join(generatedDir, filename);
-
-  if (!fs.existsSync(generatedDir)) {
-    fs.mkdirSync(generatedDir, { recursive: true });
-  }
-
-  fs.writeFileSync(filepath, imageBuffer);
-  return `/generated/${filename}`;
+function saveInlineImage(base64Data, modelId, context) {
+  return saveImageBuffer(Buffer.from(base64Data, 'base64'), modelId, context);
 }
 
-function saveImageBuffer(imageBuffer, modelId, contentType, fallbackExtension = 'png') {
-  const normalizedContentType = String(contentType || '').split(';')[0].trim().toLowerCase();
-  const extensionByContentType = {
-    'image/jpeg': 'jpg',
-    'image/jpg': 'jpg',
-    'image/png': 'png',
-    'image/webp': 'webp'
-  };
-  const extension = extensionByContentType[normalizedContentType] || fallbackExtension;
-  const modelSuffix = modelId.replace(/[^a-z0-9]+/gi, '-').toLowerCase();
-  const filename = `generated_${Date.now()}_${modelSuffix}.${extension}`;
-  const generatedDir = path.join(__dirname, 'public', 'generated');
-  const filepath = path.join(generatedDir, filename);
-
-  if (!fs.existsSync(generatedDir)) {
-    fs.mkdirSync(generatedDir, { recursive: true });
-  }
-
-  fs.writeFileSync(filepath, imageBuffer);
-  return `/generated/${filename}`;
+function saveImageBuffer(imageBuffer, modelId, context) {
+  return saveExportImage(imageBuffer, modelId, context, path.join(__dirname, 'public', 'generated'));
 }
 
 function createImageModelResult(modelId, modelConfigMeta) {
@@ -1057,7 +1029,7 @@ async function generateWithOpenAIImageModel(modelId, modelConfigMeta, requestCon
       ? await generateOpenAIImageEdit(modelId, prompt, files, resolvedSize.size)
       : await generateOpenAIImage(modelId, prompt, resolvedSize.size);
 
-    modelResult.image = saveInlineImage(responseData.data[0].b64_json, modelId);
+    modelResult.image = await saveInlineImage(responseData.data[0].b64_json, modelId, requestContext);
     if (responseData.data[0].revised_prompt) {
       modelResult.text = responseData.data[0].revised_prompt;
     }
@@ -1130,11 +1102,10 @@ async function generateWithXaiImageModel(modelId, modelConfigMeta, requestContex
       resolution
     });
 
-    modelResult.image = saveImageBuffer(
+    modelResult.image = await saveImageBuffer(
       responseData.imageBuffer,
       modelId,
-      responseData.contentType,
-      'jpg'
+      requestContext
     );
     modelResult.text = responseData.revisedPrompt;
     if (responseData.usage) {
@@ -1271,7 +1242,7 @@ function appendBflInputImages(payload, files, maxInputImages) {
   });
 }
 
-async function downloadBflImage(sampleUrl, modelId, outputFormat) {
+async function downloadBflImage(sampleUrl, modelId, context) {
   const response = await fetch(sampleUrl);
   if (!response.ok) {
     const responseText = await response.text();
@@ -1281,8 +1252,7 @@ async function downloadBflImage(sampleUrl, modelId, outputFormat) {
   }
 
   const imageBuffer = Buffer.from(await response.arrayBuffer());
-  const contentType = response.headers.get('content-type') || '';
-  return saveImageBuffer(imageBuffer, modelId, contentType, outputFormat);
+  return saveImageBuffer(imageBuffer, modelId, context);
 }
 
 async function generateWithBflImageModel(modelId, modelConfigMeta, requestContext) {
@@ -1336,7 +1306,7 @@ async function generateWithBflImageModel(modelId, modelConfigMeta, requestContex
     modelResult.debug.outputMp = submitResponse.output_mp || null;
 
     const resultData = await pollBflResult(pollingUrl);
-    modelResult.image = await downloadBflImage(resultData.result.sample, modelId, outputFormat);
+    modelResult.image = await downloadBflImage(resultData.result.sample, modelId, requestContext);
     modelResult.debug.status = resultData.status;
     if (resultData.details) {
       modelResult.debug.details = resultData.details;
@@ -1419,7 +1389,7 @@ async function generateWithGeminiImageModel(modelId, modelConfigMeta, requestCon
         if (part.text) {
           modelResult.text = `${modelResult.text || ''}${part.text}`;
         } else if (part.inlineData && part.inlineData.data) {
-          modelResult.image = saveInlineImage(part.inlineData.data, modelId);
+          modelResult.image = await saveInlineImage(part.inlineData.data, modelId, requestContext);
         }
       }
 
@@ -1648,6 +1618,9 @@ app.post('/generate', generateIpRateLimiter, generateUserRateLimiter, upload.arr
     console.log(`Calling ${selectedModels.length} selected model(s) in parallel: ${selectedModels.join(', ')}`);
     const modelPromises = selectedModels.map((selectedModel) => generateWithSelectedImageModel(selectedModel, {
       prompt: generationPrompt,
+      originalPrompt: prompt,
+      imageTitle: req.body.imageTitle,
+      imageKeywords: req.body.imageKeywords,
       files: inputFiles,
       selectedModels,
       aspectRatio,

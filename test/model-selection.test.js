@@ -3,6 +3,7 @@ const fs = require('node:fs');
 const http = require('node:http');
 const path = require('node:path');
 const test = require('node:test');
+const sharp = require('sharp');
 
 const ONE_PIXEL_PNG = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/lZkAAAAASUVORK5CYII=';
 
@@ -70,6 +71,8 @@ test('default, exact sizes, and Lite resolution use the selected model capabilit
   async function generate(fields, withReferenceImage = false) {
     const form = new FormData();
     form.set('prompt', 'A test image');
+    form.set('imageTitle', 'Høstkampanje kundemøte');
+    form.set('imageKeywords', 'kundedata, høst');
     for (const [key, value] of Object.entries(fields)) form.set(key, value);
     const imageCount = withReferenceImage === true ? 1 : Number(withReferenceImage) || 0;
     for (let index = 0; index < imageCount; index++) {
@@ -79,6 +82,15 @@ test('default, exact sizes, and Lite resolution use the selected model capabilit
     const data = await response.json();
     if (data.image) {
       t.after(() => fs.rmSync(path.join(__dirname, '..', 'public', data.image.replace(/^\//, '')), { force: true }));
+      assert.match(data.image, /^\/generated\/hostkampanje-kundemote_/);
+      const downloaded = await fetch(`${base}${data.image}`, { headers: { Cookie: cookie } });
+      assert.equal(downloaded.status, 200);
+      const metadata = await sharp(Buffer.from(await downloaded.arrayBuffer())).metadata();
+      assert.equal(metadata.format, 'png');
+      assert.ok(metadata.xmp.toString().includes('Høstkampanje kundemøte'));
+      assert.ok(metadata.xmp.toString().includes('<rdf:li>kundedata</rdf:li>'));
+      assert.ok(metadata.xmp.toString().includes('A test image'));
+
     }
     return { response, data };
   }

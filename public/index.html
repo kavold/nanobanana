@@ -122,7 +122,7 @@
             font-weight: bold;
             color: #555;
         }
-        textarea, input[type="file"], select {
+        textarea, input[type="text"], input[type="file"], select {
             width: 100%;
             padding: 15px;
             border: 2px solid rgba(221, 221, 221, 0.5);
@@ -131,7 +131,7 @@
             transition: border-color 0.3s ease;
             background: rgba(255, 255, 255, 0.8);
         }
-        textarea:focus, input[type="file"]:focus, select:focus {
+        textarea:focus, input[type="text"]:focus, input[type="file"]:focus, select:focus {
             outline: none;
             border-color: #0f766e;
             box-shadow: 0 0 0 3px rgba(15, 118, 110, 0.12);
@@ -560,6 +560,17 @@
             </div>
 
             <div class="form-group">
+                <label for="imageTitle">Bildetittel (valgfritt):</label>
+                <input type="text" id="imageTitle" maxlength="160" placeholder="F.eks. Kundemøte på kontoret">
+                <small>Brukes i filnavn og metadata. Tomt felt bruker starten av beskrivelsen.</small>
+            </div>
+            <div class="form-group">
+                <label for="imageKeywords">Søkeord (valgfritt):</label>
+                <input type="text" id="imageKeywords" maxlength="1000" placeholder="F.eks. kundemøte, kontor, høstkampanje">
+                <small>Tittel, beskrivelse og søkeord lagres i bildet. Støtte i PC-søk varierer med format og søkeprogram.</small>
+            </div>
+
+            <div class="form-group">
                 <div class="checkbox-group">
                     <input type="checkbox" id="useIntuvioBrandGuidelines">
                     <label for="useIntuvioBrandGuidelines">Intuvio Brand Guidelines</label>
@@ -872,7 +883,7 @@
                 html += '<p><strong>Generert bilde:</strong></p>';
                 html += `<img src="${imageUrl}" alt="Generert bilde" class="generated-image">`;
                 html += '<div class="image-actions">';
-                html += `<a href="${imageUrl}" download="generated-image.png" class="download-btn">Last ned bilde</a>`;
+                html += `<a href="${imageUrl}" download="${escapeHtml(item.image.split('/').pop())}" class="download-btn">Last ned bilde</a>`;
                 html += `<button type="button" class="download-btn" style="margin-left: 10px; background: linear-gradient(135deg, #0f766e 0%, #0f4c81 100%);" onclick="addGeneratedImageAsReference('${imageUrl}')">Bruk som referanse</button>`;
                 html += '</div>';
                 html += '</div>';
@@ -1135,6 +1146,8 @@ Treat this strictly as photographic restoration and color correction, not scene 
 
             const formData = new FormData();
             formData.append('prompt', prompt);
+            formData.append('imageTitle', document.getElementById('imageTitle').value);
+            formData.append('imageKeywords', document.getElementById('imageKeywords').value);
             formData.append('useIntuvioBrandGuidelines', document.getElementById('useIntuvioBrandGuidelines').checked ? 'true' : 'false');
             const useIntuvioLogo = document.getElementById('useIntuvioLogo').checked;
             formData.append('useIntuvioLogo', useIntuvioLogo ? 'true' : 'false');
