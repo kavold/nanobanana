@@ -17,14 +17,26 @@ function close(server) {
 
 test('default, exact sizes, and Lite resolution use the selected model capabilities', async (t) => {
   const upstreamRequests = [];
+  const descriptionRequests = [];
   const upstream = http.createServer(async (req, res) => {
     const chunks = [];
     for await (const chunk of req) chunks.push(chunk);
     const requestBody = Buffer.concat(chunks).toString();
-    upstreamRequests.push({
+    const recordedRequest = {
       path: req.url,
       body: requestBody && (req.headers['content-type'] || '').includes('application/json') ? JSON.parse(requestBody) : requestBody
-    });
+    };
+    if (req.url.includes('/gemini-3.1-flash-lite:generateContent')) {
+      descriptionRequests.push(recordedRequest);
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ candidates: [{ content: { parts: [{ text: JSON.stringify({
+        title: 'Webinar om markedsplan',
+        description: 'Webinarannonse med tekst om markedsplan.',
+        keywords: ['webinar', 'markedsplan']
+      }) }] } }] }));
+      return;
+    }
+    upstreamRequests.push(recordedRequest);
     if (req.url === '/sample') {
       res.writeHead(200, { 'Content-Type': 'image/png' });
       res.end(Buffer.from(ONE_PIXEL_PNG, 'base64'));
@@ -82,14 +94,16 @@ test('default, exact sizes, and Lite resolution use the selected model capabilit
     const data = await response.json();
     if (data.image) {
       t.after(() => fs.rmSync(path.join(__dirname, '..', 'public', data.image.replace(/^\//, '')), { force: true }));
-      assert.match(data.image, /^\/generated\/hostkampanje-kundemote_/);
+      assert.match(data.image, fields.imageTitle === '' ? /^\/generated\/webinar-om-markedsplan_/ : /^\/generated\/hostkampanje-kundemote_/);
       const downloaded = await fetch(`${base}${data.image}`, { headers: { Cookie: cookie } });
       assert.equal(downloaded.status, 200);
       const metadata = await sharp(Buffer.from(await downloaded.arrayBuffer())).metadata();
       assert.equal(metadata.format, 'png');
-      assert.ok(metadata.xmp.toString().includes('Høstkampanje kundemøte'));
+      assert.ok(metadata.xmp.toString().includes(fields.imageTitle === '' ? 'Webinar om markedsplan' : 'Høstkampanje kundemøte'));
       assert.ok(metadata.xmp.toString().includes('<rdf:li>kundedata</rdf:li>'));
-      assert.ok(metadata.xmp.toString().includes('A test image'));
+      assert.ok(metadata.xmp.toString().includes('Webinarannonse med tekst om markedsplan.'));
+      assert.ok(!metadata.xmp.toString().includes('A test image'));
+      assert.equal(data.results[0].metadataWarning, null);
 
     }
     return { response, data };
@@ -187,4 +201,10 @@ test('default, exact sizes, and Lite resolution use the selected model capabilit
   const tooManyForGrok = await generate({ models: 'grok-imagine-image-2.0', useIntuvioLogo: 'true', intuvioLogo: 'mark-color' }, 3);
   assert.equal(tooManyForGrok.response.status, 400);
   assert.equal(upstreamRequests.length, requestCount);
+  const automaticallyNamed = await generate({ models: 'gpt-image-2.5-sunburst', imageTitle: '' });
+  assert.equal(automaticallyNamed.data.results[0].imageTitle, 'Webinar om markedsplan');
+  assert.ok(descriptionRequests.length > 0);
+  assert.equal(descriptionRequests.at(-1).body.generationConfig.responseMimeType, 'application/json');
+  assert.equal(descriptionRequests.at(-1).body.contents[0].parts[1].inlineData.mimeType, 'image/jpeg');
+
 });

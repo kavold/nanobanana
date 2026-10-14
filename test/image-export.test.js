@@ -6,26 +6,28 @@ const path = require('node:path');
 const sharp = require('sharp');
 const { buildExportMetadata, saveExportImage } = require('../image-export');
 
-test('names are safe, distinctive and based on the original user description', () => {
-  const context = { originalPrompt: 'Rødt møterom med ærlig rådgivning', prompt: 'INTERNAL BRAND RULES', imageKeywords: 'salg, høst; salg' };
+test('names are short and safe, use the supplied title and never copy editing instructions', () => {
+  const context = { imageTitle: 'Webinar om markedsplan', imageDescription: 'Annonse med invitasjon til webinar.', originalPrompt: 'Tilpass og legg på tekst gratis webinar', prompt: 'INTERNAL BRAND RULES', imageKeywords: 'salg, høst; salg' };
   const first = buildExportMetadata('gpt-image-2', context, new Date('2026-10-14T12:30:00Z'));
   const second = buildExportMetadata('gpt-image-2', context, new Date('2026-10-14T12:30:00Z'));
-  assert.match(first.basename, /^rodt-moterom-med-aerlig-radgivning_20261014T123000Z_gpt-image-2_[a-f0-9]{8}$/);
+  assert.match(first.basename, /^webinar-om-markedsplan_2026-10-14_[a-f0-9]{8}$/);
   assert.notEqual(first.basename, second.basename);
   assert.deepEqual(first.keywords, ['salg', 'høst', 'AI-generert', 'gpt-image-2']);
   assert.ok(!first.xmp.includes('INTERNAL BRAND RULES'));
+  assert.ok(!first.xmp.includes('Tilpass og legg på tekst'));
+  assert.ok(!buildExportMetadata('model', { originalPrompt: 'Tilpass og legg på tekst' }).basename.includes('tilpass'));
   assert.match(buildExportMetadata('model', { imageTitle: '../../CON: "Title"' }).basename, /^con-title_/);
   assert.ok(buildExportMetadata('model', {}).basename.startsWith('generert-bilde_'));
 });
 
 for (const format of ['png', 'jpeg', 'webp']) {
-  test(`${format} export embeds Unicode title, prompt and keywords and retains format and dimensions`, async (t) => {
+  test(`${format} export embeds Unicode title, image description and keywords and retains format and dimensions`, async (t) => {
     const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'image-export-'));
     t.after(() => fs.rm(directory, { recursive: true, force: true }));
     const buffer = await sharp({ create: { width: 10, height: 8, channels: 4, background: '#83AEEA80' } }).toFormat(format).toBuffer();
     const image = await saveExportImage(buffer, 'test-model', {
       imageTitle: 'Høst & "rådgivning" <2026>',
-      originalPrompt: 'Et blått møterom med norske rådgivere.',
+      imageDescription: 'Et blått møterom med norske rådgivere.',
       imageKeywords: 'møte, høst, kundedata'
     }, directory);
     const output = path.join(directory, path.basename(image));

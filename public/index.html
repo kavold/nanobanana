@@ -562,12 +562,12 @@
             <div class="form-group">
                 <label for="imageTitle">Bildetittel (valgfritt):</label>
                 <input type="text" id="imageTitle" maxlength="160" placeholder="F.eks. Kundemøte på kontoret">
-                <small>Brukes i filnavn og metadata. Tomt felt bruker starten av beskrivelsen.</small>
+                <small>La feltet stå tomt for en kort AI-tittel basert på det ferdige bildet. Egen tittel overstyrer AI-tittelen.</small>
             </div>
             <div class="form-group">
                 <label for="imageKeywords">Søkeord (valgfritt):</label>
                 <input type="text" id="imageKeywords" maxlength="1000" placeholder="F.eks. kundemøte, kontor, høstkampanje">
-                <small>Tittel, beskrivelse og søkeord lagres i bildet. Støtte i PC-søk varierer med format og søkeprogram.</small>
+                <small>AI lager også beskrivelse og søkeord som lagres i bildet. Dine søkeord legges til. Støtte i PC-søk varierer med format og søkeprogram.</small>
             </div>
 
             <div class="form-group">
@@ -881,7 +881,10 @@
                 const imageUrl = escapeHtml(item.image);
                 html += '<div class="image-result-container">';
                 html += '<p><strong>Generert bilde:</strong></p>';
-                html += `<img src="${imageUrl}" alt="Generert bilde" class="generated-image">`;
+                html += `<img src="${imageUrl}" alt="${escapeHtml(item.imageDescription || item.imageTitle || 'Generert bilde')}" class="generated-image">`;
+                if (item.imageTitle) html += `<p><strong>${escapeHtml(item.imageTitle)}</strong></p>`;
+                if (item.imageDescription) html += `<p>${escapeHtml(item.imageDescription)}</p>`;
+                if (item.metadataWarning) html += `<p role="status">${escapeHtml(item.metadataWarning)}</p>`;
                 html += '<div class="image-actions">';
                 html += `<a href="${imageUrl}" download="${escapeHtml(item.image.split('/').pop())}" class="download-btn">Last ned bilde</a>`;
                 html += `<button type="button" class="download-btn" style="margin-left: 10px; background: linear-gradient(135deg, #0f766e 0%, #0f4c81 100%);" onclick="addGeneratedImageAsReference('${imageUrl}')">Bruk som referanse</button>`;

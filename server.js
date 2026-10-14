@@ -8,6 +8,7 @@ const crypto = require('crypto');
 const dotenv = require('dotenv');
 const { normalizeUploadedImages } = require('./image-processing');
 const { saveExportImage } = require('./image-export');
+const { prepareImageExport, DEFAULT_DESCRIPTION_MODEL } = require('./image-description');
 const {
   XAI_MAX_INPUT_IMAGES,
   requestXaiImage,
@@ -931,7 +932,12 @@ function saveInlineImage(base64Data, modelId, context) {
 }
 
 function saveImageBuffer(imageBuffer, modelId, context) {
-  return saveExportImage(imageBuffer, modelId, context, path.join(__dirname, 'public', 'generated'));
+  return prepareImageExport(imageBuffer, modelId, context, {
+    client: genAI,
+    descriptionModel: readEnv('IMAGE_DESCRIPTION_MODEL') || DEFAULT_DESCRIPTION_MODEL,
+    save: saveExportImage,
+    directory: path.join(__dirname, 'public', 'generated')
+  });
 }
 
 function createImageModelResult(modelId, modelConfigMeta) {
@@ -1029,7 +1035,7 @@ async function generateWithOpenAIImageModel(modelId, modelConfigMeta, requestCon
       ? await generateOpenAIImageEdit(modelId, prompt, files, resolvedSize.size)
       : await generateOpenAIImage(modelId, prompt, resolvedSize.size);
 
-    modelResult.image = await saveInlineImage(responseData.data[0].b64_json, modelId, requestContext);
+    Object.assign(modelResult, await saveInlineImage(responseData.data[0].b64_json, modelId, requestContext));
     if (responseData.data[0].revised_prompt) {
       modelResult.text = responseData.data[0].revised_prompt;
     }
@@ -1102,11 +1108,11 @@ async function generateWithXaiImageModel(modelId, modelConfigMeta, requestContex
       resolution
     });
 
-    modelResult.image = await saveImageBuffer(
+    Object.assign(modelResult, await saveImageBuffer(
       responseData.imageBuffer,
       modelId,
       requestContext
-    );
+    ));
     modelResult.text = responseData.revisedPrompt;
     if (responseData.usage) {
       modelResult.debug.usage = responseData.usage;
@@ -1306,7 +1312,7 @@ async function generateWithBflImageModel(modelId, modelConfigMeta, requestContex
     modelResult.debug.outputMp = submitResponse.output_mp || null;
 
     const resultData = await pollBflResult(pollingUrl);
-    modelResult.image = await downloadBflImage(resultData.result.sample, modelId, requestContext);
+    Object.assign(modelResult, await downloadBflImage(resultData.result.sample, modelId, requestContext));
     modelResult.debug.status = resultData.status;
     if (resultData.details) {
       modelResult.debug.details = resultData.details;
@@ -1389,7 +1395,7 @@ async function generateWithGeminiImageModel(modelId, modelConfigMeta, requestCon
         if (part.text) {
           modelResult.text = `${modelResult.text || ''}${part.text}`;
         } else if (part.inlineData && part.inlineData.data) {
-          modelResult.image = await saveInlineImage(part.inlineData.data, modelId, requestContext);
+          Object.assign(modelResult, await saveInlineImage(part.inlineData.data, modelId, requestContext));
         }
       }
 

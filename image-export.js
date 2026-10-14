@@ -18,8 +18,8 @@ function xml(value) {
 }
 
 function buildExportMetadata(modelId, context = {}, now = new Date()) {
-  const description = cleanText(context.originalPrompt || context.prompt, 8000);
-  const title = cleanText(context.imageTitle, 160) || description.slice(0, 100) || 'Generert bilde';
+  const description = cleanText(context.imageDescription, 1600) || 'AI-generert bilde.';
+  const title = cleanText(context.imageTitle, 160) || 'Generert bilde';
   const keywords = [...new Set([
     ...cleanText(context.imageKeywords, 1000).split(/[,;]+/).map((word) => word.trim()).filter(Boolean),
     'AI-generert', modelId
@@ -34,7 +34,7 @@ function buildExportMetadata(modelId, context = {}, now = new Date()) {
 <xmp:CreatorTool>${xml(`Image Studio / ${modelId}`)}</xmp:CreatorTool>
 <xmp:CreateDate>${timestamp}</xmp:CreateDate>
 </rdf:Description></rdf:RDF></x:xmpmeta>`;
-  const basename = `${slug(title)}_${timestamp.replace(/[-:]/g, '').replace(/\.\d{3}Z$/, 'Z')}_${slug(modelId, 45)}_${crypto.randomBytes(4).toString('hex')}`;
+  const basename = `${slug(title, 60)}_${timestamp.slice(0, 10)}_${crypto.randomBytes(4).toString('hex')}`;
   return { title, description, keywords, timestamp, basename, xmp };
 }
 
