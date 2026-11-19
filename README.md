@@ -4,6 +4,10 @@ Node.js/Express-app for bildegenerering og bilderedigering med Gemini, GPT Image
 
 ## Funksjoner
 
+- Egen Video-fane med oppgavene «Lag fra tekst», «Animer et bilde» og «Overfør bevegelser»
+- Videoadaptere for Grok Video 1.5/Lite, Gemini Omni 1.2 Flash og Kling V3 Standard Motion Control via fal
+- «Animer bildet» fra bilderesultatene
+
 - Tekst-til-bilde generering
 - Redigering med opptil 14 referansebilder, avhengig av valgt modell
 - Ferdig redigerbar prompt for konservativ restaurering av gamle fotografier
@@ -24,6 +28,65 @@ Node.js/Express-app for bildegenerering og bilderedigering med Gemini, GPT Image
 - Nedlasting av genererte bilder fra webgrensesnittet
 
 ## Oppsett lokalt
+
+### Video
+
+Video bruker ekte leverandør-API-er. Velg oppgave, modell og innstillinger, hent et
+prisanslag og bekreft genereringen. Bilder fungerer fortsatt som før. Modeller uten
+nøkkel vises i listen, men genereringsforsøket gir en tydelig feilmelding uten API-kall.
+
+Kling krever `ffprobe` på serverens PATH (eller `FFPROBE_PATH`) for å kontrollere
+faktisk varighet. Referansevideoer begrenses til 3–10 sekunder / 50 MB, bilder til
+10 MB i JPG/PNG/WebP. Videooppgavene sender ingen eksterne bruker-URL-er.
+
+Videoadapterne er **ikke testet mot betalte leverandører**. Automatiserte tester bruker
+kun simulerte leverandører. Kontroller saldo og automatisk påfyll hos hver leverandør.
+Valgfrie serverinnstillinger:
+
+```env
+VIDEO_MAX_JOB_USD=3
+VIDEO_MAX_DAY_USD=10
+FAL_KEY=sett_paa_serveren_for_kling
+```
+
+Grok og Google bruker eksisterende `XAI_API_KEY` og `GOOGLE_API_KEY`. At en nøkkel
+finnes betyr ikke at modelltilgang eller saldo er verifisert. FLUX-video er foreløpig
+ikke integrert. Ingen nye kontoer, påfyll eller hosted ressurser opprettes av koden.
+
+Prisene er USD-estimater kontrollert 19. november 2026. Appen reserverer 25 % over
+anslaget pluss $0,05; dette er et lokalt kostnadsvern, ikke en garanti for leverandørens
+faktiske faktura. Inndata og prisendringer kan påvirke beløpet. Dagstaket følger UTC,
+og bruker reservasjonene, ikke en avlest leverandørsaldo. Uavklarte og pågående jobber
+holdes også mot senere dagers ramme. Sett gjerne lavere grenser før testing.
+Automatisk påfyll og eventuell etterskuddsbetaling må kontrolleres hos leverandøren.
+
+Jobbhistorikk og private MP4-filer lagres under `data/video/` (Git-ignorert). Nedlasting
+går gjennom appens eksisterende innlogging og støtter HTTP Range. Midlertidige
+referanser fjernes etter innsending eller feil. Historikken inkluderer prompten;
+det er ingen automatisk sletting av historikk eller ferdige videoer i første versjon.
+
+Kjør **én Node-prosess** for denne lokale versjonen. Jobber med lagret leverandør-ID
+fortsetter polling etter omstart. Et avbrudd under innsending kan ikke sikkert avklares
+uten leverandør-ID og får «Må kontrolleres». Appen sender aldri automatisk et nytt
+genereringskall. Google-kallet returnerer resultatet direkte; avbrudd under kallet krever
+derfor manuell kontroll av forbruk. Reservasjonen beholdes også ved feil.
+
+Denne første versjonen bruker lokal disk. På Railway uten volume kan historikk,
+videoer og lokale kostnadsreservasjoner forsvinne ved redeploy. Last ned videoer du vil
+beholde. Leverandørens egne saldo- og forbruksgrenser gjelder uavhengig av appens lokale
+teller. Ingen nye lagringsressurser opprettes automatisk. Før eventuell flerbrukerdrift
+må varig lagring/backup, jobbkø for flere prosesser og sletting avklares.
+
+`railpack.json` inkluderer FFmpeg/ffprobe i Railway-runtime. Repoets hovedbranch heter
+`master`; Railway kan deploye automatisk når endringer pushes til denne branchen.
+
+API-er og prisreferanser:
+- [xAI Video](https://docs.x.ai/developers/model-capabilities/video/overview)
+- [Gemini Omni](https://aistudio.google.com/docs/omni)
+- [Google-priser](https://aistudio.google.com/docs/pricing#gemini-omni-1.2-flash)
+- [Kling V3 Motion Control](https://fal.ai/models/fal-ai/kling-video/v3/standard/motion-control/api)
+
+### Installer og konfigurer appen
 
 Krever Node.js 20 eller nyere (Google GenAI SDK).
 

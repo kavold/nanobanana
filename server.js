@@ -81,6 +81,7 @@ app.use((req, res, next) => {
 });
 
 app.get('/health', (req, res) => {
+  res.set('X-Studio-Features', 'images,video');
   res.status(200).json({ status: 'ok' });
 });
 
@@ -425,12 +426,15 @@ app.use((req, res, next) => {
     return next();
   }
 
-  if (req.path.startsWith('/generate')) {
+  if (req.path.startsWith('/generate') || req.path.startsWith('/api/video')) {
     return res.status(401).json({ error: 'Autentisering kreves.' });
   }
 
   return res.redirect('/login');
 });
+const videoStudio = require('./video-studio').createVideoStudio({ readEnv });
+app.use('/api/video', videoStudio.router);
+app.locals.videoStudio = videoStudio;
 app.use(express.static('public'));
 
 const upload = multer({

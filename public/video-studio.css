@@ -1,0 +1,34 @@
+[hidden] { display: none !important; }
+.studio-tabs { display: flex; gap: 8px; border-bottom: 1px solid #dce5ed; padding-bottom: 14px; margin-bottom: 26px; }
+.studio-tabs button { width: auto; padding: 11px 30px; background: #edf2f7; color: #334155; box-shadow: none; }
+.studio-tabs button[aria-pressed="true"] { background: #0f766e; color: white; }
+#videoPanel h2 { color: #164e63; margin: 0 0 10px; font-size: 1.4rem; }
+#videoPanel p, #videoPanel small { line-height: 1.55; }
+.video-notice { padding: 14px 18px; background: #ecfdf5; color: #065f46; border: 1px solid #a7f3d0; border-radius: 10px; }
+.video-task-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin: 24px 0; }
+.video-task-grid label { border: 2px solid #dce5ed; border-radius: 12px; padding: 16px 12px; cursor: pointer; background: #f8fafc; }
+.video-task-grid label:has(input:checked) { background: #effdfa; border-color: #0f766e; }
+.video-task-grid input { width: auto; margin: 0 0 12px; }
+.video-task-grid strong, .video-task-grid small { display: block; }
+.video-task-grid small { color: #526277; font-size: 12px; margin-top: 7px; font-weight: 400; }
+.video-settings { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 20px; }
+.video-audio { display: flex; align-items: center; gap: 10px; margin: 20px 0; }
+.video-audio input { width: auto; }
+.video-quote { margin-top: 18px; padding: 20px; border-radius: 12px; border: 1px solid #a5b4fc; background: #f5f6ff; }
+.video-muted, #videoModelHelp, #videoPanel small { color: #526277; font-size: 13px; }
+.video-error { color: #b91c1c; }
+.video-history-heading { display: flex; justify-content: space-between; align-items: center; margin: 34px 0 8px; }
+.video-history-heading button { width: auto; padding: 8px 14px; font-size: 13px; background: #e2e8f0; color: #334155; }
+.video-job { padding: 20px; border: 1px solid #dce5ed; border-radius: 12px; margin: 14px 0; background: #f8fafc; }
+.video-job h3 { margin: 0 0 6px; color: #164e63; }
+.video-job video { display: block; width: 100%; max-height: 380px; margin: 14px 0; border-radius: 8px; background: #0f172a; }
+.video-job a { display: inline-block; padding: 10px 18px; border-radius: 8px; background: #0f766e; color: white; text-decoration: none; }
+.video-job .video-status { font-weight: 600; color: #0f766e; }
+#videoImagePreview { max-height: 180px; max-width: 100%; border-radius: 10px; }
+#videoPanel button:disabled { opacity: .5; cursor: wait; }
+@media (max-width: 600px) {
+  .video-task-grid { grid-template-columns: 1fr; }
+  .video-task-grid label { padding: 12px; }
+  .video-task-grid input { float: left; margin: 4px 10px 20px 0; }
+  .video-settings { grid-template-columns: 1fr; }
+}

@@ -7,6 +7,7 @@
     <meta name="googlebot" content="noindex, nofollow, noarchive">
     <title>Image Studio - AI-bildegenerator</title>
     <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+    <link rel="stylesheet" href="/video-studio.css">
     <style>
         body {
             font-family: 'Avenir Next', 'Segoe UI', sans-serif;
@@ -538,9 +539,13 @@
     <div class="app-container">
         <div class="header">
             <div class="brand-mark" aria-hidden="true">IS</div>
-            <h1 class="main-title">AI bildegenerator</h1>
+            <h1 class="main-title">Image Studio</h1>
         </div>
-        
+        <nav class="studio-tabs" aria-label="Velg medium">
+            <button type="button" id="imagesTab" aria-controls="imagesPanel" aria-pressed="true">Bilder</button>
+            <button type="button" id="videoTab" aria-controls="videoPanel" aria-pressed="false">Video</button>
+        </nav>
+        <section id="imagesPanel" aria-label="Bildegenerator">
         <div class="model-info">
             <h3>Profesjonell AI bildegenerator</h3>
             <p class="model-description">
@@ -746,7 +751,40 @@
             <div id="resultText"></div>
             <div id="resultImage"></div>
         </div>
+        </section>
+        <section id="videoPanel" hidden aria-label="Videogenerator">
+            <div class="video-intro"><h2>Hva vil du lage?</h2><p>Velg oppgaven først. Deretter viser vi modellene som passer.</p></div>
+            <p id="videoMode" class="video-notice" role="status">Henter videotilgang …</p>
+            <form id="videoForm">
+                <div class="video-task-grid" role="group" aria-label="Videooppgave">
+                    <label><input type="radio" name="videoTask" value="text" checked><strong>Lag fra tekst</strong><small>Beskriv motivet, handlingen og lyden.</small></label>
+                    <label><input type="radio" name="videoTask" value="image"><strong>Animer et bilde</strong><small>Gi bildet bevegelse og liv.</small></label>
+                    <label><input type="radio" name="videoTask" value="motion"><strong>Overfør bevegelser</strong><small>La en figur følge en filmet fremføring.</small></label>
+                </div>
+                <div class="form-group"><label for="videoModel">Modell</label><select id="videoModel" required></select><small id="videoModelHelp"></small></div>
+                <div id="videoImageGroup" class="form-group" hidden><label for="videoImage">Startbilde eller bilde av figuren</label><input id="videoImage" type="file" accept="image/png,image/jpeg,image/webp"><small>PNG, JPG eller WebP, maks 10 MB.</small><p id="videoImageName"></p><img id="videoImagePreview" hidden alt="Valgt referansebilde"></div>
+                <div id="videoReferenceGroup" class="form-group" hidden><label for="videoReference">Video med fremføringen</label><input id="videoReference" type="file" accept="video/mp4,video/quicktime,video/webm"><small>3–10 sekunder, maks 50 MB. Vis hode og overkropp eller hele kroppen tydelig. Resultatet følger referansene.</small></div>
+                <div class="form-group"><label for="videoPrompt">Beskrivelse</label><textarea id="videoPrompt" maxlength="4000" required placeholder="Hva skal skje i klippet? Beskriv også lyd hvis du vil ha det."></textarea></div>
+                <div id="videoSettings" class="video-settings">
+                    <div><label for="videoDuration">Varighet</label><select id="videoDuration"><option value="5">5 sekunder</option><option value="8">8 sekunder</option><option value="10">10 sekunder</option></select></div>
+                    <div><label for="videoRatio">Format</label><select id="videoRatio"><option value="16:9">Liggende · 16:9</option><option value="9:16">Stående · 9:16</option></select></div>
+                </div>
+                <label class="video-audio"><input id="videoAudio" type="checkbox" checked><span id="videoAudioLabel">Generer lyd</span></label>
+                <p id="videoResolution" class="video-muted"></p>
+                <button type="submit" id="videoQuoteButton">Se prisanslag</button>
+                <div id="videoQuote" class="video-quote" hidden>
+                    <strong id="videoQuoteTitle"></strong><p id="videoQuoteDetail"></p>
+                    <p class="video-muted">Prisanslag, ikke en garantert leverandørpris. Appen reserverer en sikkerhetsmargin. Vi starter ett klipp om gangen.</p>
+                    <button type="button" id="videoGenerateButton">Generer video</button>
+                </div>
+                <p id="videoError" class="video-error" role="alert"></p>
+            </form>
+            <div class="video-history-heading"><h2>Videoene dine</h2><button id="videoRefresh" type="button">Oppdater</button></div>
+            <p id="videoBudget" class="video-muted"></p>
+            <div id="videoJobs" aria-live="polite"></div>
+        </section>
     </div>
+    <script src="/video-studio.js" defer></script>
 
     <script>
         function buildErrorMessage(response, parsedData, responseText) {
@@ -887,6 +925,7 @@
                 if (item.metadataWarning) html += `<p role="status">${escapeHtml(item.metadataWarning)}</p>`;
                 html += '<div class="image-actions">';
                 html += `<a href="${imageUrl}" download="${escapeHtml(item.image.split('/').pop())}" class="download-btn">Last ned bilde</a>`;
+                html += `<button type="button" class="download-btn" data-animate-video="${imageUrl}">Animer bildet</button>`;
                 html += `<button type="button" class="download-btn" style="margin-left: 10px; background: linear-gradient(135deg, #0f766e 0%, #0f4c81 100%);" onclick="addGeneratedImageAsReference('${imageUrl}')">Bruk som referanse</button>`;
                 html += '</div>';
                 html += '</div>';
