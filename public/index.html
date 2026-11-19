@@ -763,25 +763,31 @@
         <section id="videoPanel" hidden aria-label="Videogenerator">
             <div class="video-intro"><h2>Hva vil du lage?</h2><p>Velg oppgaven først. Deretter viser vi modellene som passer.</p></div>
             <p id="videoMode" class="video-notice" role="status">Henter videotilgang …</p>
+            <p id="videoBuild" class="video-muted"></p>
             <form id="videoForm">
-                <div class="video-task-grid" role="group" aria-label="Videooppgave">
+                <div id="videoTasks" class="video-task-grid" role="group" aria-label="Videooppgave">
                     <label><input type="radio" name="videoTask" value="text" checked><strong>Lag fra tekst</strong><small>Beskriv motivet, handlingen og lyden.</small></label>
                     <label><input type="radio" name="videoTask" value="image"><strong>Animer et bilde</strong><small>Gi bildet bevegelse og liv.</small></label>
                     <label><input type="radio" name="videoTask" value="motion"><strong>Overfør bevegelser</strong><small>La en figur følge en filmet fremføring.</small></label>
                 </div>
+                <div class="form-group"><label for="videoPriority">Hva er viktigst for dette klippet?</label><select id="videoPriority"><option value="general">Et godt utgangspunkt</option><option value="budget">Lav pris og flere forsøk</option><option value="character">Figur eller person</option><option value="sound">Scene med lyd</option><option value="long">Lengre klipp</option><option value="resolution">Høy oppløsning</option></select></div>
+                <div id="videoRecommendations" class="video-recommendations" aria-label="Modellforslag"></div>
                 <div class="form-group"><label for="videoModel">Modell</label><select id="videoModel" required></select><small id="videoModelHelp"></small></div>
+                <aside id="videoModelGuide" class="video-model-guide" aria-label="Om valgt modell"></aside>
+                <details class="video-catalogue"><summary>Sammenlign modellene for denne oppgaven</summary><p class="video-muted">Et kontrollert utvalg fra fal-katalogen. Forslagene bygger på dokumenterte funksjoner og priser, ikke egen rangering av bildekvalitet. Ingen betalte sammenligningstester er kjørt.</p><div id="videoComparison"></div></details>
                 <div id="videoImageGroup" class="form-group" hidden>
                     <label for="videoImage">Startbilde eller bilde av figuren</label>
                     <button type="button" id="videoCreateImage" class="video-create-image">Lag et bilde først</button>
                     <p class="video-muted">Lag for eksempel en superheltvariant av deg selv, og kom tilbake hit med bildet. Eller velg en fil nedenfor.</p>
                     <input id="videoImage" type="file" accept="image/png,image/jpeg,image/webp"><small>PNG, JPG eller WebP, maks 50 MB. Store bilder tilpasses automatisk til videoen. Originalen endres ikke.</small><p id="videoImageName"></p><img id="videoImagePreview" hidden alt="Valgt referansebilde">
                 </div>
-                <div id="videoReferenceGroup" class="form-group" hidden><label for="videoReference">Video med fremføringen</label><input id="videoReference" type="file" accept="video/mp4,video/quicktime,video/webm"><small>3–30 sekunder, maks 50 MB. Vis hode og overkropp eller hele kroppen tydelig. Resultatet følger referansene.</small></div>
-                <div class="form-group"><label for="videoPrompt">Beskrivelse</label><textarea id="videoPrompt" maxlength="4000" required placeholder="Hva skal skje i klippet? Beskriv også lyd hvis du vil ha det."></textarea></div>
+                <div id="videoReferenceGroup" class="form-group" hidden><label id="videoReferenceLabel" for="videoReference">Video med fremføringen</label><input id="videoReference" type="file" accept="video/mp4,video/quicktime,video/webm"><small id="videoReferenceHelp">Maks 50 MB. Varighet og krav følger valgt modell.</small></div>
+                <div id="videoAudioGroup" class="form-group" hidden><label for="videoAudioFile">Ferdig tale som lydfil</label><input id="videoAudioFile" type="file" accept="audio/mpeg,audio/wav,audio/mp4,audio/ogg,audio/aac,audio/flac"><small>MP3, WAV, M4A, OGG, AAC eller FLAC, maks 10 MB. Varigheten måles før prisanslaget. Lydfilen bestemmer ordene; tale lages ikke automatisk fra teksten.</small></div>
+                <div id="videoPromptGroup" class="form-group"><label for="videoPrompt">Beskrivelse</label><textarea id="videoPrompt" maxlength="4000" required placeholder="Hva skal skje i klippet? Beskriv også lyd hvis du vil ha det."></textarea></div>
                 <div id="videoSettings" class="video-settings">
-                    <div><label for="videoDuration">Varighet</label><select id="videoDuration"><option value="5">5 sekunder</option><option value="8">8 sekunder</option><option value="10">10 sekunder</option></select></div>
-                    <div><label for="videoRatio">Format</label><select id="videoRatio"><option value="16:9">Liggende · 16:9</option><option value="9:16">Stående · 9:16</option></select></div>
-                    <div><label for="videoResolution">Oppløsning</label><select id="videoResolution"><option value="720p">720p</option></select></div>
+                    <div id="videoDurationGroup"><label for="videoDuration">Varighet</label><select id="videoDuration"><option value="5">5 sekunder</option></select></div>
+                    <div id="videoRatioGroup"><label for="videoRatio">Format</label><select id="videoRatio"><option value="16:9">Liggende · 16:9</option></select></div>
+                    <div id="videoResolutionGroup"><label for="videoResolution">Oppløsning</label><select id="videoResolution"><option value="720p">720p</option></select></div>
                 </div>
                 <label class="video-audio"><input id="videoAudio" type="checkbox" checked><span id="videoAudioLabel">Generer lyd</span></label>
                 <p id="videoResolutionHelp" class="video-muted"></p>

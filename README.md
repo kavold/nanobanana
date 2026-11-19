@@ -4,8 +4,8 @@ Node.js/Express-app for bildegenerering og bilderedigering med Gemini, GPT Image
 
 ## Funksjoner
 
-- Egen Video-fane med oppgavene «Lag fra tekst», «Animer et bilde» og «Overfør bevegelser»
-- Videoadaptere for Grok Video 1.5/Lite, Gemini Omni 1.2 Flash og Kling V3 Standard Motion Control via fal
+- Egen Video-fane med sju oppgaver, modellforslag og sammenligning av pris/bruksområder
+- 23 fal-modellvalg (38 endepunkter) samt eksisterende direktekoblinger for Grok og Gemini
 - «Animer bildet» fra bilderesultatene
 
 - Tekst-til-bilde generering
@@ -35,44 +35,60 @@ Video bruker ekte leverandør-API-er. Aktiv jobb vises med spinner, fase og medg
 prisanslag og bekreft genereringen. Bilder fungerer fortsatt som før. Modeller uten
 nøkkel vises i listen, men genereringsforsøket gir en tydelig feilmelding uten API-kall.
 
-Ved «Animer et bilde» og «Overfør bevegelser» kan du velge «Lag et bilde først».
+Ved alle oppgaver som trenger et bilde kan du velge «Lag et bilde først».
 Du går da til Bilder med en forklaring og velger «Bruk i video» under et resultat.
 Appen tar bildet tilbake til den opprinnelige videooppgaven uten å endre valgt modell,
 prompt, varighet, oppløsning eller opplastet fremføringsvideo. Du kan også gå tilbake
 uten å velge et nytt bilde. Bildet og videoen genereres i to separate, betalte steg;
 å bytte fane eller velge et ferdig bilde starter ingen generering.
 
-Kling krever `ffprobe` på serverens PATH (eller `FFPROBE_PATH`) for å kontrollere
-faktisk varighet. Referansevideoer begrenses til 3–30 sekunder / 50 MB, bilder til
-50 MB i JPG/PNG/WebP. Bilder roteres etter EXIF, forminskes til valgt videostørrelse
-og komprimeres til WebP under 6 MB. Sideforhold bevares uten beskjæring eller
-oppskalering. Kling tilpasser figurens bilde til referansevideoens dimensjoner.
-Originalfilen endres ikke. Videooppgavene sender ingen eksterne bruker-URL-er.
+Velg mellom tekst til video, bildeanimering, bevegelsesoverføring, snakkende bilde,
+endring av video, leppesynk på video og oppskalering. Prioriter lav pris, figurer,
+lyd, lengde eller oppløsning for å få begrunnede modellforslag. Sammenligningslisten
+viser flere passende valg. fal og direkteleverandørene har tydelig merket separat saldo.
 
-Videoadapterne er **ikke testet mot betalte leverandører**. Automatiserte tester bruker
-kun simulerte leverandører. Kontroller saldo og automatisk påfyll hos hver leverandør.
-Varighet, format og oppløsning følger en servervalidert modellkatalog:
+[Full modellkartlegging, prisgrunnlag, begrensninger og valg som ikke er integrert](docs/video-model-guide.md).
+Katalogen vedlikeholdes i `video-catalogue.js`; appen tilbyr bare servervaliderte valg.
+Eksempelvis støtter LTX 2.3-valget bare 6/8/10 s, mens Veo Fast tilbyr 4/6/8 s
+ved 720p og 8 s ved høyere oppløsning. Modeller kan bestemme format fra startbildet.
+Kling-generert tale er dokumentert for engelsk/kinesisk; for ferdig norsk tale finnes
+en egen flyt med opplastet lydfil. Norsk tale og kvalitet er ikke verifisert ved betalte tester.
 
-| Modell | Varighet | Format | Oppløsning |
-| --- | --- | --- | --- |
-| Grok Video 1.5 / Lite | 1–15 s | 9 dokumenterte forhold ved tekst; startbildets format ved animering | 480p, 720p, 1080p |
-| Gemini Omni 1.2 Flash | 3–15 s | 16:9, 9:16 | 360p, 720p, 1080p/4K oppskalert |
-| Kling V3 Motion Control | 3–30 s målt fra videoen | Fra referansene, video-orientering | Fra modellen |
+Opplastet lyd/video krever `ffprobe` på serverens PATH (eller `FFPROBE_PATH`).
+Faktisk varighet, dimensjoner og relevante FPS-krav kontrolleres før generering.
+Fremføringsvideo til «Overfør bevegelser» kan være opptil 200 MB. Appen kontrollerer
+3–30 s før klargjøring, og komprimerer ved behov til H.264 MP4 med AAC-lyd, normalt
+opptil 720p / 30 fps og under 40 MB. Ingen beskjæring eller oppskalering; originalen
+endres ikke. Komprimeringen bruker lokal FFmpeg (`FFMPEG_PATH`), maks to
+encodertråder og 90 s timeout. Særlig brede formater kan beholde mer enn 1280 px
+langside for å unngå å bryte Klings minimumsstørrelse. Opplastinger med videobilde
+over 8K avvises. Prisanslaget viser tilpassede dimensjoner og filstørrelse.
+Andre videooppgaver har maks 50 MB og modellens varighet, maks 30 s i appen.
+Tale er maks 10 MB, 3–30 s (H3 Lip Sync: 5–30 s). Leppesynk krever at video
+og lyd har samme varighet innen 0,25 s. API-et bruker tekstfeltet `audio` for
+lydvalget og filfeltet `speech` for lydfilen, slik at feltene ikke kolliderer.
+Bilder begrenses til 50 MB JPG/PNG/WebP, roteres etter EXIF, forminskes til valgt
+videostørrelse og komprimeres til WebP under 6 MB, uten strekk, beskjæring eller
+oppskalering. Originalfilen endres ikke. Modellens minste bildestørrelse og
+sideforhold kontrolleres. Videooppgavene tar ikke eksterne bruker-URL-er som input.
 
-Prisanslaget følger valgt oppløsning. Lange klipp/høy oppløsning kan overskride appens
-standardgrense og blir da avvist før leverandørkallet. Grok Lite leverer 1080p oppskalert.
+Videoadapterne er **ikke testet mot betalte leverandører**. Tester bruker simulerte
+leverandører, datert offentlig API-skjema og DOM-tester av skjermflyten. Kontroller
+saldo og automatisk påfyll hos hver leverandør. Priser bruker ordinære eller
+konservative satser; tidsbegrensede kampanjer reduserer ikke appens reservasjon.
 
 Valgfrie serverinnstillinger:
 
 ```env
 VIDEO_MAX_JOB_USD=3
 VIDEO_MAX_DAY_USD=10
-FAL_KEY=sett_paa_serveren_for_kling
+FAL_KEY=sett_paa_serveren_for_fal
 ```
 
 Grok og Google bruker eksisterende `XAI_API_KEY` og `GOOGLE_API_KEY`. At en nøkkel
-finnes betyr ikke at modelltilgang eller saldo er verifisert. FLUX-video er foreløpig
-ikke integrert. Ingen nye kontoer, påfyll eller hosted ressurser opprettes av koden.
+finnes betyr ikke at modelltilgang eller saldo er verifisert. FLUX 3 Max er tilgjengelig
+via fal, mens eksisterende BFL-bildefunksjon fortsatt bruker sin direkte nøkkel.
+Ingen nye kontoer, påfyll eller hosted ressurser opprettes av koden.
 
 Prisene er USD-estimater kontrollert 19. november 2026. Appen reserverer 25 % over
 anslaget pluss $0,05; dette er et lokalt kostnadsvern, ikke en garanti for leverandørens
@@ -80,10 +96,13 @@ faktiske faktura. Inndata og prisendringer kan påvirke beløpet. Dagstaket føl
 og bruker reservasjonene, ikke en avlest leverandørsaldo. Uavklarte og pågående jobber
 holdes også mot senere dagers ramme. Sett gjerne lavere grenser før testing.
 Automatisk påfyll og eventuell etterskuddsbetaling må kontrolleres hos leverandøren.
+Ved HTTP 422 oversettes bare kjente feltnavn og feilkategorier; rå leverandørsvar,
+bilde-/videodata, signerte URL-er og nøkkelverdier vises ikke. Den eksakte årsaken
+til en tidligere feil kan ikke utledes av HTTP-statusen alene.
 
 Jobbhistorikk og private MP4-filer lagres under `data/video/` (Git-ignorert). Nedlasting
 går gjennom appens eksisterende innlogging og støtter HTTP Range. Midlertidige
-referanser fjernes etter innsending eller feil. Historikken inkluderer prompten;
+bilde-, video- og lydreferanser fjernes etter innsending eller feil. Historikken inkluderer prompten;
 det er ingen automatisk sletting av historikk eller ferdige videoer i første versjon.
 
 Kjør **én Node-prosess** for denne lokale versjonen. Jobber med lagret leverandør-ID

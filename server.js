@@ -100,7 +100,8 @@ app.use((req, res, next) => {
 });
 
 app.get('/health', (req, res) => {
-  res.set('X-Studio-Features', 'images,video');
+  res.set('X-Studio-Features', 'images,video,fal-catalogue,motion-compression');
+  res.set('X-Studio-Version', /^[a-f0-9]{7,40}$/.test(readEnv('RAILWAY_GIT_COMMIT_SHA')) ? readEnv('RAILWAY_GIT_COMMIT_SHA').slice(0, 7) : 'fal-video-20261119');
   res.status(200).json({ status: 'ok' });
 });
 

@@ -6,7 +6,9 @@ const crypto = require('node:crypto');
 const { execFile } = require('node:child_process');
 const { promisify } = require('node:util');
 const { normalizeVideoImage } = require('./video-images');
+const { probeVideo, displaySize, normalizeMotionVideo } = require('./video-media');
 const { VIDEO_MODELS, createProviders } = require('./video-providers');
+const { VIDEO_TASKS, modelDurations, estimateVideo } = require('./video-catalogue');
 const run = promisify(execFile);
 const ACTIVE = new Set(['queued', 'submitting', 'running', 'downloading']);
 
@@ -48,7 +50,7 @@ function createVideoStudio({ readEnv, directory = path.join(__dirname, 'data', '
       ...(status === 'completed' ? { videoUrl: `/api/video/jobs/${id}/file` } : {}) };
   }
   function cleanInputs(job) {
-    for (const field of ['imagePath', 'videoPath']) {
+    for (const field of ['imagePath', 'videoPath', 'audioPath']) {
       if (job[field]) fs.rmSync(job[field], { force: true });
       delete job[field];
     }
@@ -113,7 +115,9 @@ function createVideoStudio({ readEnv, directory = path.join(__dirname, 'data', '
   function catalogue() {
     return {
       maxJobUsd: perJob, maxDayUsd: perDay, reservedTodayUsd: spentToday(),
-      models: VIDEO_MODELS.map(({ key, ...m }) => ({ ...m, connected: Boolean(readEnv(key)),
+      version: /^[a-f0-9]{7,40}$/.test(readEnv('RAILWAY_GIT_COMMIT_SHA')) ? readEnv('RAILWAY_GIT_COMMIT_SHA').slice(0, 7) : 'fal-video-20261119',
+      tasks: VIDEO_TASKS,
+      models: VIDEO_MODELS.map(({ key, endpoints, defaults, ...m }) => ({ ...m, connected: Boolean(readEnv(key)),
         available: true, priceDate: '2026-11-19' }))
     };
   }
@@ -127,22 +131,25 @@ function createVideoStudio({ readEnv, directory = path.join(__dirname, 'data', '
     if (req.query.download === '1') res.attachment(`video-${job.id}.mp4`);
     res.sendFile(path.join(directory, `${job.id}.mp4`));
   });
-  const upload = multer({ dest: directory, limits: { files: 2, fileSize: 50 * 1024 * 1024, fields: 12, fieldSize: 12000 } })
-    .fields([{ name: 'image', maxCount: 1 }, { name: 'video', maxCount: 1 }]);
+  const upload = multer({ dest: directory, limits: { files: 2, fileSize: 200 * 1024 * 1024, fields: 12, fieldSize: 12000 } })
+    .fields([{ name: 'image', maxCount: 1 }, { name: 'video', maxCount: 1 }, { name: 'speech', maxCount: 1 }]);
 
   function validate(body, files) {
     const model = VIDEO_MODELS.find(m => m.id === body.model);
     if (!model || !model.tasks.includes(body.task)) throw new Error('Velg en modell som støtter oppgaven.');
-    if (typeof body.prompt !== 'string' || !body.prompt.trim() || body.prompt.length > 4000) throw new Error('Skriv en beskrivelse på 1–4000 tegn.');
+    const task = VIDEO_TASKS[body.task];
+    const maxPrompt = model.promptMax || 4000;
+    if (typeof body.prompt !== 'string' || (task.promptRequired && !body.prompt.trim()) || body.prompt.length > maxPrompt) throw new Error(`Beskrivelsen må være ${task.promptRequired ? '1' : '0'}–${maxPrompt} tegn.`);
     if (!model.ratios.includes(body.aspectRatio)) throw new Error('Velg et format modellen støtter.');
-    if (body.task !== 'motion' && (!Number.isInteger(Number(body.duration)) || Number(body.duration) < model.minDuration || Number(body.duration) > model.maxDuration)) throw new Error(`Velg en varighet mellom ${model.minDuration} og ${model.maxDuration} sekunder.`);
-    const resolution = body.resolution || (body.task === 'motion' ? 'auto' : '720p');
+    const resolution = body.resolution || model.defaultResolution || (body.task === 'motion' ? 'auto' : '720p');
     if (!Object.hasOwn(model.rates, resolution)) throw new Error('Velg en oppløsning modellen støtter.');
-    if (body.task !== 'text' && !files.image?.[0]) throw new Error('Last opp et startbilde eller bilde av figuren.');
-    if (body.task === 'motion' && !files.video?.[0]) throw new Error('Last opp videoen med fremføringen.');
-    if ((body.task === 'text' && files.image) || (body.task !== 'motion' && files.video)) throw new Error('Opplastingen passer ikke til valgt oppgave.');
+    if (!task.measured && !modelDurations(model, resolution).includes(Number(body.duration))) throw new Error('Velg en varighet modellen støtter ved denne oppløsningen.');
+    for (const [kind, label] of Object.entries({ image: 'et bilde', video: 'en video', audio: 'en lydfil' })) {
+      if (task.inputs.includes(kind) && !files[kind]?.[0]) throw new Error(`Last opp ${label} for denne oppgaven.`);
+      if (!task.inputs.includes(kind) && files[kind]) throw new Error('Opplastingen passer ikke til valgt oppgave.');
+    }
     if (body.audio !== 'true' && body.audio !== 'false') throw new Error('Ugyldig lydvalg.');
-    if (model.audio === 'included' && body.audio !== 'true') throw new Error('Google-modellen genererer lyd som en del av videoen.');
+    if (['included', 'input'].includes(model.audio) && body.audio !== 'true') throw new Error('Denne modellen bruker lyd som en del av videoen.');
     return model;
   }
   async function prepare(body, files) {
@@ -150,41 +157,79 @@ function createVideoStudio({ readEnv, directory = path.join(__dirname, 'data', '
     let videoSize;
     const data = { task: body.task, model: model.id, prompt: body.prompt.trim(),
       duration: Number(body.duration), aspectRatio: body.aspectRatio,
-      resolution: body.resolution || (body.task === 'motion' ? 'auto' : '720p'), audio: body.audio === 'true' };
+      resolution: body.resolution || model.defaultResolution || (body.task === 'motion' ? 'auto' : '720p'), audio: body.audio === 'true' };
     if (files.video?.[0]) {
       const file = files.video[0];
+      if (body.task !== 'motion' && file.size > 50 * 1024 * 1024) throw new Error('Denne videooppgaven støtter maks 50 MB. Automatisk videokomprimering er foreløpig tilgjengelig for «Overfør bevegelser».');
       let info;
       try {
-        const { stdout } = await run(readEnv('FFPROBE_PATH') || 'ffprobe', ['-v', 'error', '-protocol_whitelist', 'file', '-format_whitelist', 'mov,matroska,webm', '-show_entries', 'format=duration,format_name:stream=codec_type,width,height', '-of', 'json', file.path], { timeout: 10000, maxBuffer: 128 * 1024 });
-        info = JSON.parse(stdout);
+        info = await probeVideo(file.path, readEnv('FFPROBE_PATH') || 'ffprobe');
       } catch { throw new Error('Kunne ikke lese videoen. MP4/MOV/WebM og ffprobe kreves.'); }
       const duration = Number(info.format?.duration);
       if (!info.streams?.some(s => s.codec_type === 'video') || !Number.isFinite(duration) || duration < model.minDuration || duration > model.maxDuration) throw new Error(`Fremføringen må være en video på ${model.minDuration}–${model.maxDuration} sekunder.`);
+      if (body.task === 'motion') {
+        const normalized = await normalizeMotionVideo(file, info, { ffmpeg: readEnv('FFMPEG_PATH') || 'ffmpeg', ffprobe: readEnv('FFPROBE_PATH') || 'ffprobe' });
+        info = normalized.info; data.inputVideo = normalized.inputVideo;
+      }
       const format = info.format.format_name;
       data.videoMime = /webm|matroska/.test(format) ? 'video/webm' : 'video/mp4';
       if (!/webm|matroska|mp4|mov/.test(format)) throw new Error('Bruk MP4, MOV eller WebM.');
       data.videoPath = file.path;
-      videoSize = info.streams.find(s => s.codec_type === 'video');
+      const videoStream = info.streams.find(s => s.codec_type === 'video');
+      videoSize = displaySize(videoStream);
+      const limits = model.videoLimits || {};
+      const edge = Math.min(videoSize.width, videoSize.height), long = Math.max(videoSize.width, videoSize.height);
+      const [frames, seconds = 1] = (videoStream.r_frame_rate || '').split('/').map(Number);
+      const fps = frames / seconds;
+      if ((limits.minEdge && edge < limits.minEdge) || (limits.maxEdge && long > limits.maxEdge) ||
+          (limits.minFps && !(fps >= limits.minFps)) || (limits.maxFps && !(fps <= limits.maxFps)) ||
+          (limits.mp4Only && data.videoMime !== 'video/mp4')) throw new Error('Videoens dimensjoner, bildefrekvens eller filformat passer ikke modellen. Se begrensningene ved modellvalget.');
+      data.videoDuration = duration;
       data.duration = Math.ceil(duration);
       data.aspectRatio = 'Fra referansene';
     }
+    if (files.audio?.[0]) {
+      const file = files.audio[0];
+      if (file.size > 10 * 1024 * 1024) throw new Error('Lydfilen kan være maks 10 MB.');
+      let info;
+      try {
+        const { stdout } = await run(readEnv('FFPROBE_PATH') || 'ffprobe', ['-v', 'error', '-protocol_whitelist', 'file', '-format_whitelist', 'wav,mp3,ogg,mov,flac,aac', '-show_entries', 'format=duration,format_name:stream=codec_type,duration', '-of', 'json', file.path], { timeout: 10000, maxBuffer: 128 * 1024 });
+        info = JSON.parse(stdout);
+      } catch { throw new Error('Kunne ikke lese lydfilen. Bruk MP3, WAV, M4A, OGG, AAC eller FLAC.'); }
+      const duration = Number(info.format?.duration);
+      if (!info.streams?.some(s => s.codec_type === 'audio') || info.streams.some(s => s.codec_type === 'video') ||
+          !Number.isFinite(duration) || duration < model.minDuration || duration > model.maxDuration) throw new Error(`Lydfilen må inneholde bare lyd og være ${model.minDuration}–${model.maxDuration} sekunder.`);
+      if (body.task === 'lipsync' && Math.abs(data.videoDuration - duration) > .25) throw new Error('Video og lyd må ha samme varighet (maks 0,25 s forskjell). Tilpass filene før leppesynk.');
+      const format = info.format.format_name;
+      data.audioMime = /mp3/.test(format) ? 'audio/mpeg' : /wav/.test(format) ? 'audio/wav' : /ogg/.test(format) ? 'audio/ogg' : /flac/.test(format) ? 'audio/flac' : /aac/.test(format) ? 'audio/aac' : 'audio/mp4';
+      data.audioPath = file.path; data.duration = Math.ceil(duration);
+      data.aspectRatio = 'Fra referansene';
+    }
     if (files.image?.[0]) {
+      if (files.image[0].size > 50 * 1024 * 1024) throw new Error('Bildet kan være maks 50 MB før automatisk forminsking.');
       data.inputImage = await normalizeVideoImage(files.image[0], {
         resolution: data.resolution, aspectRatio: body.aspectRatio,
-        followImageRatio: model.provider === 'xai',
+        followImageRatio: model.provider === 'xai' || model.followImage || body.task === 'talk',
+        minimumEdge: model.imageLimits?.minEdge || 0,
         ...(body.task === 'motion' ? { videoSize } : {})
       });
       data.imagePath = files.image[0].path;
       data.imageMime = 'image/webp';
-      if (body.task === 'image' && model.provider === 'xai') data.aspectRatio = `${data.inputImage.width}:${data.inputImage.height}`;
+      const limits = model.imageLimits || {};
+      const { width, height } = data.inputImage;
+      const ratio = width / height;
+      if ((limits.minEdge && Math.min(width, height) < limits.minEdge) || (limits.minRatio && ratio < limits.minRatio) ||
+          (limits.maxRatio && ratio > limits.maxRatio)) throw new Error('Bildet er for lite eller har et format modellen ikke støtter. Se begrensningene ved modellvalget.');
+      if (model.exactImageRatio && Math.abs(ratio - body.aspectRatio.split(':').map(Number).reduce((a, b) => a / b)) > .015) throw new Error('Denne modellen krever at startbildet allerede passer valgt format (16:9 eller 9:16). Velg en annen modell for å beholde hele bildet.');
+      if ((body.task === 'image' && (model.provider === 'xai' || model.followImage)) || body.task === 'talk') data.aspectRatio = `${width}:${height}`;
     }
     // Reserve 25% plus input allowance. This is an app guard, not a provider bill guarantee.
-    data.estimate = Number((data.duration * model.rates[data.resolution] + (data.imagePath ? 0.02 : 0)).toFixed(4));
+    data.estimate = estimateVideo(model, data);
     data.reserved = Number((data.estimate * 1.25 + 0.05).toFixed(4));
     return data;
   }
   function fingerprint(data, files) {
-    const { imagePath, videoPath, ...stable } = data;
+    const { imagePath, videoPath, audioPath, ...stable } = data;
     const hash = crypto.createHash('sha256').update(JSON.stringify(stable));
     for (const file of Object.values(files).flat()) hash.update(fs.readFileSync(file.path));
     return hash.digest('hex');
@@ -195,11 +240,13 @@ function createVideoStudio({ readEnv, directory = path.join(__dirname, 'data', '
     upload(req, res, async error => {
       let retained = false;
       try {
-        if (error) throw new Error('Opplastingen feilet. Maks 50 MB per fil.');
+        if (error) throw new Error('Opplastingen feilet. Maks 200 MB for fremføringsvideo, 50 MB for bilde og 10 MB for lyd.');
         const files = req.files || {};
+        // Keep the boolean audio option separate from the uploaded speech file.
+        if (files.speech) { files.audio = files.speech; delete files.speech; }
         const data = await prepare(req.body, files);
         if (req.path === '/quote') return res.json({ estimate: data.estimate, reserved: data.reserved,
-          duration: data.duration, aspectRatio: data.aspectRatio, resolution: data.resolution, inputImage: data.inputImage,
+          duration: data.duration, aspectRatio: data.aspectRatio, resolution: data.resolution, inputImage: data.inputImage, inputVideo: data.inputVideo,
           currency: 'USD', priceDate: '2026-11-19' });
         if (!/^[a-zA-Z0-9-]{16,80}$/.test(req.body.requestId || '')) throw new Error('Ugyldig forespørsels-ID. Last siden på nytt.');
         if (req.body.confirmed !== 'true') throw new Error('Bekreft prisanslaget før generering.');
@@ -218,7 +265,7 @@ function createVideoStudio({ readEnv, directory = path.join(__dirname, 'data', '
         res.status(202).json(publicJob(job));
         tick().catch(() => {});
       } catch (err) {
-        res.status(400).json({ error: error ? 'Opplastingen feilet. Maks 50 MB per fil.' : (err.message.includes('Input buffer') || err.message.includes('unsupported image') ? 'Ugyldig bildefil.' : err.message) });
+        res.status(400).json({ error: error ? 'Opplastingen feilet. Maks 200 MB for fremføringsvideo, 50 MB for bilde og 10 MB for lyd.' : (err.message.includes('Input buffer') || err.message.includes('unsupported image') ? 'Ugyldig bildefil.' : err.message) });
       } finally {
         if (!retained) for (const f of Object.values(req.files || {}).flat()) fs.rmSync(f.path, { force: true });
         accepting = false;

@@ -28,7 +28,7 @@ function form(extra = {}, files = {}) {
   const data = new FormData();
   const fields = { task: 'text', model: 'grok-imagine-video-1.5-lite', prompt: 'En båt på stille vann', duration: '5', aspectRatio: '16:9', audio: 'true', requestId: 'test-request-id-0001', confirmed: 'true', ...extra };
   for (const [key, value] of Object.entries(fields)) data.set(key, value);
-  for (const [key, file] of Object.entries(files)) data.set(key, new Blob([file.bytes], { type: file.type }), file.name);
+  for (const [key, file] of Object.entries(files)) data.set(key === 'audio' ? 'speech' : key, new Blob([file.bytes], { type: file.type }), file.name);
   return data;
 }
 async function post(base, endpoint, data) {
@@ -105,7 +105,7 @@ test('persisted remote IDs resume polling; uncertain submissions never repeat', 
 test('Kling quote measures the video server-side and rejects fake images', async t => {
   try { execFileSync('ffprobe', ['-version'], { stdio: 'ignore' }); } catch { t.skip('ffprobe is not installed'); return; }
   const s = await setup(t);
-  const image = await require('sharp')({ create: { width: 64, height: 64, channels: 3, background: '#ffffff' } }).png().toBuffer();
+  const image = await require('sharp')({ create: { width: 640, height: 640, channels: 3, background: '#ffffff' } }).png().toBuffer();
   const fields = { task: 'motion', model: 'kling-v3-motion', duration: '1' };
   const files = {
     image: { bytes: image, type: 'image/png', name: 'figure.png' },
@@ -173,7 +173,7 @@ test('video API and downloads require the existing app login', async t => {
   assert.equal(login.status, 302);
   const headers = { Cookie: login.headers.get('set-cookie').split(';')[0] };
   const config = await (await fetch(`${base}/api/video/config`, { headers })).json();
-  assert.equal(config.demo, undefined); assert.equal(config.models.length, 4);
+  assert.equal(config.demo, undefined); assert.equal(config.models.length, require('../video-providers').VIDEO_MODELS.length);
   assert.equal(JSON.stringify(config).includes('test-password'), false);
   const html = await (await fetch(base, { headers })).text();
   for (const id of ['imagesPanel', 'videoPanel', 'videoForm', 'videoQuote', 'videoJobs']) assert.ok(html.includes(`id="${id}"`));
@@ -182,4 +182,50 @@ test('video API and downloads require the existing app login', async t => {
   for (const script of [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)]) new vm.Script(script[1]);
   const js = await (await fetch(`${base}/video-studio.js`, { headers })).text();
   new vm.Script(js);
+});
+
+function speech(seconds) {
+  const sampleRate = 8000, bytes = seconds * sampleRate * 2;
+  const wav = Buffer.alloc(bytes + 44);
+  wav.write('RIFF'); wav.writeUInt32LE(bytes + 36, 4); wav.write('WAVEfmt ', 8);
+  wav.writeUInt32LE(16, 16); wav.writeUInt16LE(1, 20); wav.writeUInt16LE(1, 22);
+  wav.writeUInt32LE(sampleRate, 24); wav.writeUInt32LE(sampleRate * 2, 28);
+  wav.writeUInt16LE(2, 32); wav.writeUInt16LE(16, 34); wav.write('data', 36); wav.writeUInt32LE(bytes, 40);
+  return wav;
+}
+
+test('talking portraits measure real audio before billing, clean files and never trust client duration', async t => {
+  let submitted;
+  const s = await setup(t, { FAL_KEY: 'fake' }, { submit: async job => { submitted = { ...job }; assert.ok(fs.existsSync(job.audioPath)); return { remoteId: 'talk-remote' }; } });
+  const image = await require('sharp')({ create: { width: 800, height: 800, channels: 3, background: '#ffffff' } }).png().toBuffer();
+  const fields = { task: 'talk', model: 'fal-kling-avatar', duration: '999', resolution: 'auto', prompt: '' };
+  const files = { image: { bytes: image, name: 'portrait.png', type: 'image/png' }, audio: { bytes: speech(5), name: 'speech.wav', type: 'audio/wav' } };
+  const quote = await post(s.base, 'quote', form(fields, files));
+  assert.equal(quote.status, 200, JSON.stringify(quote.data)); assert.equal(quote.data.duration, 5);
+  assert.equal(quote.data.estimate, .301);
+  assert.equal((await post(s.base, 'quote', form(fields, { ...files, audio: { bytes: 'fake', name: 'audio.wav', type: 'audio/wav' } }))).status, 400);
+  assert.equal((await post(s.base, 'quote', form(fields, { ...files, audio: { bytes: speech(31), name: 'long.wav', type: 'audio/wav' } }))).status, 400);
+  assert.equal((await post(s.base, 'jobs', form(fields, files))).status, 202);
+  for (let i = 0; i < 20 && !submitted; i++) await new Promise(r => setTimeout(r, 5));
+  assert.equal(submitted.duration, 5); assert.equal(submitted.audioMime, 'audio/wav');
+  assert.equal(fs.existsSync(submitted.audioPath), false);
+  assert.equal(fs.existsSync(submitted.imagePath), false);
+});
+
+test('new video tools enforce actual dimensions, matched speech lengths and legal duration choices', async t => {
+  const s = await setup(t, { FAL_KEY: 'fake' });
+  const video = { bytes: fs.readFileSync(path.join(__dirname, 'fixtures/video.mp4')), type: 'video/mp4', name: 'clip.mp4' };
+  const edit = await post(s.base, 'quote', form({ task: 'edit', model: 'fal-kling-edit', resolution: 'auto' }, { video }));
+  assert.equal(edit.status, 400); assert.match(edit.data.error, /dimensjoner/);
+  const sync = { task: 'lipsync', model: 'fal-sync-pro', resolution: 'auto', prompt: '' };
+  const matched = await post(s.base, 'quote', form(sync, { video, audio: { bytes: speech(3), type: 'audio/wav', name: 'speech.wav' } }));
+  assert.equal(matched.status, 200, JSON.stringify(matched.data)); assert.equal(matched.data.duration, 3);
+  const mismatch = await post(s.base, 'quote', form(sync, { video, audio: { bytes: speech(5), type: 'audio/wav', name: 'speech.wav' } }));
+  assert.equal(mismatch.status, 400); assert.match(mismatch.data.error, /samme varighet/);
+  const upscale = await post(s.base, 'quote', form({ task: 'upscale', model: 'fal-topaz', resolution: 'auto', prompt: '' }, { video }));
+  assert.equal(upscale.status, 200); assert.equal(upscale.data.estimate, .24);
+  assert.equal((await post(s.base, 'quote', form({ model: 'fal-ltx', resolution: '1080p', duration: '5' }))).status, 400);
+  assert.equal((await post(s.base, 'quote', form({ model: 'fal-ltx', resolution: '1080p', duration: '6' }))).status, 200);
+  assert.equal((await post(s.base, 'quote', form({ model: 'fal-veo-fast', resolution: '4k', duration: '4' }))).status, 400);
+  assert.equal(fs.readdirSync(s.directory).length, 1);
 });

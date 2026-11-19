@@ -38,3 +38,14 @@ test('portrait orientation is respected and small images are never enlarged', as
   const unchanged = await normalizeVideoImage({ path: small, size: fs.statSync(small).size }, { resolution: '1080p', aspectRatio: '16:9', followImageRatio: false });
   assert.equal(unchanged.width, 64); assert.equal(unchanged.height, 32);
 });
+
+test('a valid portrait is not shrunk below model minimum when the performance video is landscape', async () => {
+  const fs = require('node:fs'), os = require('node:os'), path = require('node:path');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'motion-portrait-'));
+  const file = path.join(dir, 'portrait.png');
+  try {
+    const bytes = await sharp({ create: { width: 500, height: 1250, channels: 3, background: '#ffffff' } }).png().toBuffer(); fs.writeFileSync(file, bytes);
+    const result = await normalizeVideoImage({ path: file, size: bytes.length }, { resolution: 'auto', aspectRatio: '16:9', videoSize: { width: 1280, height: 720 }, minimumEdge: 340 });
+    assert.ok(result.width >= 340); assert.equal(result.width / result.height, .4);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});

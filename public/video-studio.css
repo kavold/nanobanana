@@ -41,3 +41,19 @@
   .video-task-grid input { float: left; margin: 4px 10px 20px 0; }
   .video-settings { grid-template-columns: 1fr; }
 }
+.video-recommendations { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin: 18px 0; }
+#videoPanel .video-model-card { text-align: left; padding: 16px; border: 2px solid #dce5ed; border-radius: 12px; background: #f8fafc; color: #164e63; box-shadow: none; font-size: 14px; font-weight: 400; }
+#videoPanel .video-model-card[aria-pressed="true"] { border-color: #0f766e; background: #effdfa; }
+.video-model-card strong, .video-model-card span, .video-model-card small { display: block; line-height: 1.5; }
+.video-model-card span { margin: 8px 0; }
+.video-model-guide { border-left: 3px solid #0f766e; background: #f0fdfa; padding: 12px 18px; margin: 12px 0 20px; }
+.video-model-guide p { margin: 6px 0; font-size: 14px; }
+.video-model-guide a { font-size: 13px; color: #0f766e; }
+.video-catalogue { margin: 16px 0 24px; border: 1px solid #dce5ed; border-radius: 10px; padding: 15px; }
+.video-catalogue summary { cursor: pointer; font-weight: 600; color: #164e63; }
+.video-comparison-row { padding: 16px 0; border-bottom: 1px solid #dce5ed; }
+.video-comparison-row:last-child { border: 0; }
+.video-comparison-row p { margin: 6px 0; }
+#videoPanel .video-comparison-row button { width: auto; padding: 8px 12px; font-size: 13px; box-shadow: none; }
+#videoPanel button:focus-visible, #videoPanel summary:focus-visible { outline: 3px solid #164e63; outline-offset: 3px; }
+@media (max-width: 750px) { .video-recommendations { grid-template-columns: 1fr; } }
