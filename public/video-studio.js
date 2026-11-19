@@ -3,6 +3,7 @@
   const money = value => `$${Number(value).toFixed(2)}`;
   const states = { queued: 'I kø', submitting: 'Sender til leverandøren', running: 'Genereres', downloading: 'Lagrer video', completed: 'Ferdig', attention: 'Må kontrolleres' };
   let config; let imageFile; let requestId = crypto.randomUUID(); let sending = false; let previewUrl;
+  let activeJob = null;
   let quoteRevision = 0;
   function showVideo(show) {
     $('imagesPanel').hidden = show; $('videoPanel').hidden = !show;
@@ -17,11 +18,26 @@
   function invalidate() { $('videoQuote').hidden = true; quoteRevision++; requestId = crypto.randomUUID(); }
   function updateModel() {
     const m = model(); if (!m) return;
+    function choices(id, values, fallback, label = value => value) {
+      const previous = $(id).value;
+      $(id).replaceChildren(...values.map(value => {
+        const option = document.createElement('option'); option.value = String(value); option.textContent = label(value); return option;
+      }));
+      $(id).value = values.some(value => String(value) === previous) ? previous : String(fallback);
+    }
+    choices('videoDuration', Array.from({ length: m.maxDuration - m.minDuration + 1 }, (_, i) => i + m.minDuration), 5, value => `${value} sekunder`);
+    choices('videoRatio', m.ratios, '16:9', value => value === '16:9' ? 'Liggende · 16:9' : value === '9:16' ? 'Stående · 9:16' : value === '1:1' ? 'Kvadrat · 1:1' : value);
+    choices('videoResolution', Object.keys(m.rates), task() === 'motion' ? 'auto' : '720p', value => {
+      if (value === 'auto') return 'Fra referansene';
+      if ((m.provider === 'google' && ['1080p', '4k'].includes(value)) || (m.id.endsWith('-lite') && value === '1080p')) return `${value} · oppskalert`;
+      return value;
+    });
+    $('videoRatio').disabled = task() === 'image' && m.provider === 'xai';
     $('videoAudio').disabled = m.audio === 'included';
     if (m.audio === 'included') $('videoAudio').checked = true;
     $('videoAudioLabel').textContent = m.audio === 'source' ? 'Behold lyden fra fremføringen' : m.audio === 'included' ? 'Lyd er inkludert i denne modellen' : 'Generer lyd';
     $('videoModelHelp').textContent = m.connected ? 'Nøkkel finnes. Modelltilgang og saldo er ikke verifisert.' : 'API-nøkkel mangler. Legg den inn på serveren før du genererer.';
-    $('videoResolution').textContent = task() === 'motion' ? 'Varighet måles fra videoen på serveren. Format og oppløsning følger modellens referanser.' : '720p. Ved bildeanimering følger Grok formatet til bildet.';
+    $('videoResolutionHelp').textContent = task() === 'motion' ? 'Varigheten måles fra fremføringen, 3–30 sekunder. Format og oppløsning følger referansene.' : task() === 'image' && m.provider === 'xai' ? 'Formatet følger startbildet automatisk. Velg varighet og oppløsning.' : `Modellen støtter ${m.minDuration}–${m.maxDuration} sekunder. Høyere oppløsning koster mer.`;
     $('videoQuoteButton').disabled = !m.available;
     invalidate();
   }
@@ -54,7 +70,7 @@
   function formData() {
     const data = new FormData();
     for (const [key, value] of Object.entries({ task: task(), model: $('videoModel').value,
-      prompt: $('videoPrompt').value, duration: $('videoDuration').value, aspectRatio: $('videoRatio').value,
+      prompt: $('videoPrompt').value, duration: $('videoDuration').value, aspectRatio: $('videoRatio').value, resolution: $('videoResolution').value,
       audio: String($('videoAudio').checked), requestId, confirmed: 'true' })) data.set(key, value);
     if (task() !== 'text' && imageFile) data.set('image', imageFile);
     if (task() === 'motion' && $('videoReference').files[0]) data.set('video', $('videoReference').files[0]);
@@ -71,21 +87,32 @@
     event.preventDefault(); if (sending) return;
     const revision = quoteRevision;
     $('videoError').textContent = ''; $('videoQuoteButton').disabled = true;
+    $('videoQuoteButton').textContent = 'Klargjør filer og beregner pris …';
     try {
       const quote = await api('/quote', { method: 'POST', body: formData() });
       if (revision !== quoteRevision) return;
       $('videoQuoteTitle').textContent = `Anslått pris: ${money(quote.estimate)} USD`;
-      $('videoQuoteDetail').textContent = `${quote.duration} sekunder · ${quote.aspectRatio}. Ved ekte generering: ca. ${money(quote.estimate)}, med ${money(quote.reserved)} reservert mot appens grense. Priser kontrollert ${quote.priceDate}.`;
+      $('videoQuoteDetail').textContent = `${quote.duration} sekunder · ${quote.aspectRatio} · ${quote.resolution}. Ca. ${money(quote.estimate)}, med ${money(quote.reserved)} reservert mot appens grense. Priser kontrollert ${quote.priceDate}.`;
+      if (quote.inputImage) {
+        const image = quote.inputImage;
+        $('videoQuoteDetail').textContent += ` Bildet tilpasses fra ${image.originalWidth} × ${image.originalHeight} til ${image.width} × ${image.height} piksler (${(image.bytes / 1024 / 1024).toFixed(1)} MB).`;
+      }
       $('videoGenerateButton').textContent = 'Generer video';
       $('videoQuote').hidden = false;
     } catch (error) { $('videoError').textContent = error.message; }
-    finally { $('videoQuoteButton').disabled = !model()?.available; }
+    finally { $('videoQuoteButton').disabled = !model()?.available; $('videoQuoteButton').textContent = 'Se prisanslag'; }
   });
   $('videoGenerateButton').addEventListener('click', async () => {
     if (sending) return; sending = true;
     const form = $('videoForm'); const fields = [...form.querySelectorAll('input, select, textarea, button')];
     const disabled = fields.map(el => el.disabled); const body = formData();
     fields.forEach(el => { el.disabled = true; }); $('videoError').textContent = '';
+    $('videoProgress').hidden = false;
+    $('videoProgress').setAttribute('aria-busy', 'true');
+    $('videoProgressTitle').textContent = 'Sender forespørselen';
+    $('videoProgressDetail').textContent = 'Laster opp og oppretter videojobben …';
+    $('videoElapsed').textContent = '';
+    $('videoProgress').scrollIntoView({ behavior: 'smooth', block: 'center' });
     try {
       await api('/jobs', { method: 'POST', body });
       $('videoQuote').hidden = true;
@@ -93,13 +120,32 @@
       await refresh();
     } catch (error) {
       $('videoError').textContent = `${error.message} Ved nettverksfeil kan du prøve samme knapp igjen; forespørsels-ID beholdes for å hindre dobbeltkjøring.`;
-    } finally { fields.forEach((el, i) => { el.disabled = disabled[i]; }); sending = false; }
+      await refresh();
+    } finally {
+      fields.forEach((el, i) => { el.disabled = disabled[i]; }); sending = false;
+      $('videoGenerateButton').disabled = Boolean(activeJob);
+      if (!activeJob) $('videoProgress').hidden = true;
+    }
   });
+  function updateElapsed() {
+    if (!activeJob) return;
+    const seconds = Math.max(0, Math.floor((Date.now() - Date.parse(activeJob.createdAt)) / 1000));
+    $('videoElapsed').textContent = `Tid siden start: ${Math.floor(seconds / 60)} min ${seconds % 60} sek`;
+  }
   let lastJobs = '';
   async function refresh() {
     if (!config) return;
     try {
       const data = await api('/jobs');
+      activeJob = data.jobs.find(job => ['queued', 'submitting', 'running', 'downloading'].includes(job.status)) || null;
+      $('videoProgress').hidden = !activeJob;
+      $('videoProgress').setAttribute('aria-busy', String(Boolean(activeJob)));
+      $('videoGenerateButton').disabled = Boolean(activeJob);
+      if (activeJob) {
+        $('videoProgressTitle').textContent = activeJob.status === 'downloading' ? 'Videoen er laget – lagrer filen' : 'Videoen din er på vei';
+        $('videoProgressDetail').textContent = `${config.models.find(m => m.id === activeJob.model)?.label || activeJob.model} · ${states[activeJob.status]}`;
+        updateElapsed();
+      }
       $('videoBudget').textContent = `Reservert i dag / uavklart: ${money(data.reservedTodayUsd)} av ${money(config.maxDayUsd)} USD. Maks per jobb: ${money(config.maxJobUsd)}.`;
       const serialized = JSON.stringify(data.jobs);
       if (lastJobs === serialized) return; lastJobs = serialized;
@@ -111,7 +157,7 @@
         const status = document.createElement('p'); status.className = 'video-status'; status.textContent = states[job.status] || job.status;
         const prompt = document.createElement('p'); prompt.textContent = job.prompt;
         const details = document.createElement('p'); details.className = 'video-muted';
-        details.textContent = `${new Date(job.createdAt).toLocaleString('nb-NO')} · ${job.duration} s · anslag ${money(job.estimate)} USD`;
+        details.textContent = `${new Date(job.createdAt).toLocaleString('nb-NO')} · ${job.duration} s · ${job.resolution || '720p'} · anslag ${money(job.estimate)} USD`;
         const message = document.createElement('p'); message.textContent = job.message;
         card.append(title, status, prompt, details, message);
         if (job.videoUrl) {
@@ -145,4 +191,5 @@
     updateTask(); refresh();
   }).catch(error => { $('videoMode').textContent = error.message; $('videoQuoteButton').disabled = true; });
   setInterval(() => { if (!$('videoPanel').hidden) refresh(); }, 3000);
+  setInterval(updateElapsed, 1000);
 })();

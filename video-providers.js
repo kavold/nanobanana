@@ -2,10 +2,10 @@ const fs = require('node:fs');
 
 // Prices checked 2026-11-19. Output estimates only; the studio reserves a margin.
 const VIDEO_MODELS = [
-  { id: 'grok-imagine-video-1.5-lite', label: 'Grok Video Lite', provider: 'xai', key: 'XAI_API_KEY', tasks: ['text', 'image'], rate: 0.03, resolutions: ['720p'], audio: 'optional' },
-  { id: 'grok-imagine-video-1.5', label: 'Grok Video', provider: 'xai', key: 'XAI_API_KEY', tasks: ['text', 'image'], rate: 0.14, resolutions: ['720p'], audio: 'optional' },
-  { id: 'gemini-omni-1.2-flash', label: 'Gemini Omni Flash', provider: 'google', key: 'GOOGLE_API_KEY', tasks: ['text', 'image'], rate: 0.069504, resolutions: ['720p'], audio: 'included' },
-  { id: 'kling-v3-motion', label: 'Kling V3 Motion Control', provider: 'fal', key: 'FAL_KEY', tasks: ['motion'], rate: 0.126, resolutions: ['auto'], audio: 'source' }
+  { id: 'grok-imagine-video-1.5-lite', label: 'Grok Video Lite', provider: 'xai', key: 'XAI_API_KEY', tasks: ['text', 'image'], minDuration: 1, maxDuration: 15, ratios: ['16:9', '9:16', '1:1', '4:3', '3:4', '3:2', '2:3', '21:9', '5:2'], rates: { '480p': 0.02, '720p': 0.03, '1080p': 0.14 }, audio: 'optional' },
+  { id: 'grok-imagine-video-1.5', label: 'Grok Video', provider: 'xai', key: 'XAI_API_KEY', tasks: ['text', 'image'], minDuration: 1, maxDuration: 15, ratios: ['16:9', '9:16', '1:1', '4:3', '3:4', '3:2', '2:3', '21:9', '5:2'], rates: { '480p': 0.08, '720p': 0.14, '1080p': 0.25 }, audio: 'optional' },
+  { id: 'gemini-omni-1.2-flash', label: 'Gemini Omni Flash', provider: 'google', key: 'GOOGLE_API_KEY', tasks: ['text', 'image'], minDuration: 3, maxDuration: 15, ratios: ['16:9', '9:16'], rates: { '360p': 0.023172, '720p': 0.069504, '1080p': 0.104256, '4k': 0.208512 }, audio: 'included' },
+  { id: 'kling-v3-motion', label: 'Kling V3 Motion Control', provider: 'fal', key: 'FAL_KEY', tasks: ['motion'], minDuration: 3, maxDuration: 30, ratios: ['16:9'], rates: { auto: 0.126 }, audio: 'source' }
 ];
 const FAL_MODEL = 'fal-ai/kling-video/v3/standard/motion-control';
 const safeProviderError = (status) => {
@@ -38,7 +38,7 @@ function createProviders(readEnv, fetchImpl = fetch) {
       if (model.provider === 'xai') {
         const data = await json('https://api.x.ai/v1/videos/generations', `Bearer ${key}`, {
           model: model.id, prompt: job.prompt, duration: job.duration,
-          resolution: '720p', ...(job.task === 'text' ? { aspect_ratio: job.aspectRatio } : {}), generate_audio: job.audio,
+          resolution: job.resolution || '720p', ...(job.task === 'text' ? { aspect_ratio: job.aspectRatio } : {}), generate_audio: job.audio,
           ...(job.task === 'image' ? { image: { url: image(job) } } : {})
         });
         if (!data.request_id) throw new Error('Leverandøren returnerte ikke en jobb-ID.');
@@ -59,10 +59,12 @@ function createProviders(readEnv, fetchImpl = fetch) {
       const data = await json('https://generativelanguage.googleapis.com/v1beta/interactions', key, {
         model: model.id, input,
         generation_config: { video_config: { task: job.task === 'image' ? 'image_to_video' : 'text_to_video' } },
-        response_format: { type: 'video', resolution: '720p', duration: `${job.duration}s`, aspect_ratio: job.aspectRatio },
+        response_format: { type: 'video', resolution: job.resolution || '720p', duration: `${job.duration}s`, aspect_ratio: job.aspectRatio },
         store: false
       }, true);
-      const output = data.output_video;
+      const output = data.steps?.filter(step => step.type === 'model_output')
+        .flatMap(step => step.content || []).find(content => content.type === 'video' && content.data)
+        || data.output_video;
       if (!output?.data) throw new Error('Google returnerte ikke videodata. Kontroller forbruk før et nytt forsøk.');
       return { bytes: Buffer.from(output.data, 'base64') };
     },

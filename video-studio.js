@@ -5,7 +5,7 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 const { execFile } = require('node:child_process');
 const { promisify } = require('node:util');
-const sharp = require('sharp');
+const { normalizeVideoImage } = require('./video-images');
 const { VIDEO_MODELS, createProviders } = require('./video-providers');
 const run = promisify(execFile);
 const ACTIVE = new Set(['queued', 'submitting', 'running', 'downloading']);
@@ -41,9 +41,9 @@ function createVideoStudio({ readEnv, directory = path.join(__dirname, 'data', '
     fs.renameSync(`${db}.tmp`, db);
   }
   function publicJob(job) {
-    const { id, task, model, prompt, duration, aspectRatio, audio, estimate, reserved,
+    const { id, task, model, prompt, duration, aspectRatio, resolution, audio, estimate, reserved,
       status, message, createdAt, completedAt } = job;
-    return { id, task, model, prompt, duration, aspectRatio, audio, estimate, reserved,
+    return { id, task, model, prompt, duration, aspectRatio, resolution, audio, estimate, reserved,
       status, message, createdAt, completedAt,
       ...(status === 'completed' ? { videoUrl: `/api/video/jobs/${id}/file` } : {}) };
   }
@@ -134,8 +134,10 @@ function createVideoStudio({ readEnv, directory = path.join(__dirname, 'data', '
     const model = VIDEO_MODELS.find(m => m.id === body.model);
     if (!model || !model.tasks.includes(body.task)) throw new Error('Velg en modell som støtter oppgaven.');
     if (typeof body.prompt !== 'string' || !body.prompt.trim() || body.prompt.length > 4000) throw new Error('Skriv en beskrivelse på 1–4000 tegn.');
-    if (!['16:9', '9:16'].includes(body.aspectRatio)) throw new Error('Velg 16:9 eller 9:16.');
-    if (body.task !== 'motion' && (!Number.isInteger(Number(body.duration)) || Number(body.duration) < 3 || Number(body.duration) > 10)) throw new Error('Velg en varighet mellom 3 og 10 sekunder.');
+    if (!model.ratios.includes(body.aspectRatio)) throw new Error('Velg et format modellen støtter.');
+    if (body.task !== 'motion' && (!Number.isInteger(Number(body.duration)) || Number(body.duration) < model.minDuration || Number(body.duration) > model.maxDuration)) throw new Error(`Velg en varighet mellom ${model.minDuration} og ${model.maxDuration} sekunder.`);
+    const resolution = body.resolution || (body.task === 'motion' ? 'auto' : '720p');
+    if (!Object.hasOwn(model.rates, resolution)) throw new Error('Velg en oppløsning modellen støtter.');
     if (body.task !== 'text' && !files.image?.[0]) throw new Error('Last opp et startbilde eller bilde av figuren.');
     if (body.task === 'motion' && !files.video?.[0]) throw new Error('Last opp videoen med fremføringen.');
     if ((body.task === 'text' && files.image) || (body.task !== 'motion' && files.video)) throw new Error('Opplastingen passer ikke til valgt oppgave.');
@@ -145,18 +147,10 @@ function createVideoStudio({ readEnv, directory = path.join(__dirname, 'data', '
   }
   async function prepare(body, files) {
     const model = validate(body, files);
+    let videoSize;
     const data = { task: body.task, model: model.id, prompt: body.prompt.trim(),
-      duration: Number(body.duration), aspectRatio: body.aspectRatio, audio: body.audio === 'true' };
-    if (files.image?.[0]) {
-      const file = files.image[0];
-      if (file.size > 10 * 1024 * 1024) throw new Error('Bildet kan være maks 10 MB.');
-      const meta = await sharp(file.path, { limitInputPixels: 40_000_000 }).metadata();
-      if (!['jpeg', 'png', 'webp'].includes(meta.format)) throw new Error('Bruk et bilde i PNG, JPG eller WebP.');
-      data.imagePath = file.path;
-      data.imageMime = `image/${meta.format}`;
-      // xAI follows the source image ratio; expose this instead of promising a crop.
-      data.aspectRatio = body.task === 'image' && model.provider === 'xai' ? `${meta.width}:${meta.height}` : body.aspectRatio;
-    }
+      duration: Number(body.duration), aspectRatio: body.aspectRatio,
+      resolution: body.resolution || (body.task === 'motion' ? 'auto' : '720p'), audio: body.audio === 'true' };
     if (files.video?.[0]) {
       const file = files.video[0];
       let info;
@@ -165,16 +159,27 @@ function createVideoStudio({ readEnv, directory = path.join(__dirname, 'data', '
         info = JSON.parse(stdout);
       } catch { throw new Error('Kunne ikke lese videoen. MP4/MOV/WebM og ffprobe kreves.'); }
       const duration = Number(info.format?.duration);
-      if (!info.streams?.some(s => s.codec_type === 'video') || !Number.isFinite(duration) || duration < 3 || duration > 10) throw new Error('Fremføringen må være en video på 3–10 sekunder.');
+      if (!info.streams?.some(s => s.codec_type === 'video') || !Number.isFinite(duration) || duration < model.minDuration || duration > model.maxDuration) throw new Error(`Fremføringen må være en video på ${model.minDuration}–${model.maxDuration} sekunder.`);
       const format = info.format.format_name;
       data.videoMime = /webm|matroska/.test(format) ? 'video/webm' : 'video/mp4';
       if (!/webm|matroska|mp4|mov/.test(format)) throw new Error('Bruk MP4, MOV eller WebM.');
       data.videoPath = file.path;
+      videoSize = info.streams.find(s => s.codec_type === 'video');
       data.duration = Math.ceil(duration);
       data.aspectRatio = 'Fra referansene';
     }
+    if (files.image?.[0]) {
+      data.inputImage = await normalizeVideoImage(files.image[0], {
+        resolution: data.resolution, aspectRatio: body.aspectRatio,
+        followImageRatio: model.provider === 'xai',
+        ...(body.task === 'motion' ? { videoSize } : {})
+      });
+      data.imagePath = files.image[0].path;
+      data.imageMime = 'image/webp';
+      if (body.task === 'image' && model.provider === 'xai') data.aspectRatio = `${data.inputImage.width}:${data.inputImage.height}`;
+    }
     // Reserve 25% plus input allowance. This is an app guard, not a provider bill guarantee.
-    data.estimate = Number((data.duration * model.rate + (data.imagePath ? 0.02 : 0)).toFixed(4));
+    data.estimate = Number((data.duration * model.rates[data.resolution] + (data.imagePath ? 0.02 : 0)).toFixed(4));
     data.reserved = Number((data.estimate * 1.25 + 0.05).toFixed(4));
     return data;
   }
@@ -190,11 +195,12 @@ function createVideoStudio({ readEnv, directory = path.join(__dirname, 'data', '
     upload(req, res, async error => {
       let retained = false;
       try {
-        if (error) throw new Error('Opplastingen feilet. Maks 10 MB bilde og 50 MB video.');
+        if (error) throw new Error('Opplastingen feilet. Maks 50 MB per fil.');
         const files = req.files || {};
         const data = await prepare(req.body, files);
         if (req.path === '/quote') return res.json({ estimate: data.estimate, reserved: data.reserved,
-          duration: data.duration, aspectRatio: data.aspectRatio, currency: 'USD', priceDate: '2026-11-19' });
+          duration: data.duration, aspectRatio: data.aspectRatio, resolution: data.resolution, inputImage: data.inputImage,
+          currency: 'USD', priceDate: '2026-11-19' });
         if (!/^[a-zA-Z0-9-]{16,80}$/.test(req.body.requestId || '')) throw new Error('Ugyldig forespørsels-ID. Last siden på nytt.');
         if (req.body.confirmed !== 'true') throw new Error('Bekreft prisanslaget før generering.');
         const print = fingerprint(data, files);
@@ -212,7 +218,7 @@ function createVideoStudio({ readEnv, directory = path.join(__dirname, 'data', '
         res.status(202).json(publicJob(job));
         tick().catch(() => {});
       } catch (err) {
-        res.status(400).json({ error: error ? error.message : (err.message.includes('Input buffer') || err.message.includes('unsupported image') ? 'Ugyldig bildefil.' : err.message) });
+        res.status(400).json({ error: error ? 'Opplastingen feilet. Maks 50 MB per fil.' : (err.message.includes('Input buffer') || err.message.includes('unsupported image') ? 'Ugyldig bildefil.' : err.message) });
       } finally {
         if (!retained) for (const f of Object.values(req.files || {}).flat()) fs.rmSync(f.path, { force: true });
         accepting = false;

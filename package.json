@@ -9,20 +9,19 @@
     "test": "node --test"
   },
   "engines": {
-    "node": ">=20.0.0",
+    "node": ">=20.9.0",
     "npm": ">=8.0.0"
   },
   "dependencies": {
     "@google/genai": "^2.24.0",
-    "cors": "^2.8.5",
     "dotenv": "^16.4.5",
-    "express": "^4.22.1",
+    "express": "^4.22.3",
     "heic-convert": "^2.1.0",
     "multer": "^1.4.5-lts.1",
-    "sharp": "^0.34.5"
+    "sharp": "^0.35.5"
   },
   "overrides": {
-    "qs": "^6.14.2"
+    "qs": "^6.17.1"
   },
   "devDependencies": {
     "nodemon": "^3.0.3"

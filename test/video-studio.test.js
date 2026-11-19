@@ -122,7 +122,7 @@ test('provider contracts map uploads, audio, remote IDs and Google inline output
   const requests = [];
   const fakeFetch = async (url, options) => {
     requests.push({ url, options, body: options.body ? JSON.parse(options.body) : null });
-    return { ok: true, json: async () => url.includes('interactions') ? { output_video: { data: 'dmlkZW8=' } } : { request_id: 'remote-123' } };
+    return { ok: true, json: async () => url.includes('interactions') ? { steps: [{ type: 'model_output', content: [{ type: 'video', mime_type: 'video/mp4', data: 'dmlkZW8=' }] }] } : { request_id: 'remote-123' } };
   };
   const provider = createProviders(() => 'test-key', fakeFetch);
   const imagePath = path.join(os.tmpdir(), `video-provider-${Date.now()}.png`); fs.writeFileSync(imagePath, 'image');
@@ -142,6 +142,20 @@ test('provider contracts map uploads, audio, remote IDs and Google inline output
     assert.equal(requests[2].options.headers.Authorization, 'Key test-key');
     await assert.rejects(provider.download('http://127.0.0.1/private'), /ukjent/);
   } finally { fs.rmSync(imagePath); }
+});
+
+test('quotes enforce model-specific duration, format and resolution with matching prices', async t => {
+  const s = await setup(t);
+  const xai = await post(s.base, 'quote', form({ duration: '1', aspectRatio: '1:1', resolution: '480p' }));
+  assert.equal(xai.status, 200); assert.equal(xai.data.estimate, 0.02);
+  const longXai = await post(s.base, 'quote', form({ duration: '15', aspectRatio: '21:9', resolution: '1080p' }));
+  assert.equal(longXai.status, 200); assert.equal(longXai.data.estimate, 2.1);
+  assert.equal((await post(s.base, 'quote', form({ duration: '16' }))).status, 400);
+  assert.equal((await post(s.base, 'quote', form({ resolution: '4k' }))).status, 400);
+  const google = { model: 'gemini-omni-1.2-flash', duration: '15', resolution: '4k', aspectRatio: '9:16' };
+  assert.equal((await post(s.base, 'quote', form(google))).status, 200);
+  assert.equal((await post(s.base, 'quote', form({ ...google, duration: '2' }))).status, 400);
+  assert.equal((await post(s.base, 'quote', form({ ...google, aspectRatio: '1:1' }))).status, 400);
 });
 
 test('video API and downloads require the existing app login', async t => {

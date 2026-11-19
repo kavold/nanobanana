@@ -17,6 +17,11 @@
 .video-quote { margin-top: 18px; padding: 20px; border-radius: 12px; border: 1px solid #a5b4fc; background: #f5f6ff; }
 .video-muted, #videoModelHelp, #videoPanel small { color: #526277; font-size: 13px; }
 .video-error { color: #b91c1c; }
+.video-progress { display: flex; align-items: flex-start; gap: 18px; margin: 28px 0; padding: 22px; border: 1px solid #83cfc3; border-radius: 14px; background: #effdfa; color: #164e63; }
+.video-progress p { margin: 8px 0; }
+.video-spinner { flex: 0 0 28px; width: 28px; height: 28px; border: 3px solid #c5e9e2; border-top-color: #0f766e; border-radius: 50%; animation: video-spin 1s linear infinite; margin-top: 3px; }
+@keyframes video-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .video-spinner { animation: none; border-style: dotted; } }
 .video-history-heading { display: flex; justify-content: space-between; align-items: center; margin: 34px 0 8px; }
 .video-history-heading button { width: auto; padding: 8px 14px; font-size: 13px; background: #e2e8f0; color: #334155; }
 .video-job { padding: 20px; border: 1px solid #dce5ed; border-radius: 12px; margin: 14px 0; background: #f8fafc; }

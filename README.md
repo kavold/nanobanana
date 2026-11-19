@@ -31,16 +31,30 @@ Node.js/Express-app for bildegenerering og bilderedigering med Gemini, GPT Image
 
 ### Video
 
-Video bruker ekte leverandør-API-er. Velg oppgave, modell og innstillinger, hent et
+Video bruker ekte leverandør-API-er. Aktiv jobb vises med spinner, fase og medgått tid. Velg oppgave, modell og innstillinger, hent et
 prisanslag og bekreft genereringen. Bilder fungerer fortsatt som før. Modeller uten
 nøkkel vises i listen, men genereringsforsøket gir en tydelig feilmelding uten API-kall.
 
 Kling krever `ffprobe` på serverens PATH (eller `FFPROBE_PATH`) for å kontrollere
-faktisk varighet. Referansevideoer begrenses til 3–10 sekunder / 50 MB, bilder til
-10 MB i JPG/PNG/WebP. Videooppgavene sender ingen eksterne bruker-URL-er.
+faktisk varighet. Referansevideoer begrenses til 3–30 sekunder / 50 MB, bilder til
+50 MB i JPG/PNG/WebP. Bilder roteres etter EXIF, forminskes til valgt videostørrelse
+og komprimeres til WebP under 6 MB. Sideforhold bevares uten beskjæring eller
+oppskalering. Kling tilpasser figurens bilde til referansevideoens dimensjoner.
+Originalfilen endres ikke. Videooppgavene sender ingen eksterne bruker-URL-er.
 
 Videoadapterne er **ikke testet mot betalte leverandører**. Automatiserte tester bruker
 kun simulerte leverandører. Kontroller saldo og automatisk påfyll hos hver leverandør.
+Varighet, format og oppløsning følger en servervalidert modellkatalog:
+
+| Modell | Varighet | Format | Oppløsning |
+| --- | --- | --- | --- |
+| Grok Video 1.5 / Lite | 1–15 s | 9 dokumenterte forhold ved tekst; startbildets format ved animering | 480p, 720p, 1080p |
+| Gemini Omni 1.2 Flash | 3–15 s | 16:9, 9:16 | 360p, 720p, 1080p/4K oppskalert |
+| Kling V3 Motion Control | 3–30 s målt fra videoen | Fra referansene, video-orientering | Fra modellen |
+
+Prisanslaget følger valgt oppløsning. Lange klipp/høy oppløsning kan overskride appens
+standardgrense og blir da avvist før leverandørkallet. Grok Lite leverer 1080p oppskalert.
+
 Valgfrie serverinnstillinger:
 
 ```env
@@ -88,7 +102,7 @@ API-er og prisreferanser:
 
 ### Installer og konfigurer appen
 
-Krever Node.js 20 eller nyere (Google GenAI SDK).
+Krever Node.js 20.9 eller nyere (Google GenAI SDK).
 
 1. Installer avhengigheter:
    ```bash
@@ -117,7 +131,6 @@ Krever Node.js 20 eller nyere (Google GenAI SDK).
    PASSWORD=valgfritt_i_dev
    BASIC_AUTH_USERNAME=
    BASIC_AUTH_PASSWORD=
-   AUTH_SESSION_SECRET=
    ALLOW_UNAUTHENTICATED=false
    LOGIN_WINDOW_SECONDS=600
    LOGIN_MAX_ATTEMPTS_PER_IP=15
@@ -149,7 +162,12 @@ Innlogging via `/login` kreves for alle endepunkter unntatt `/health`.
 - Brukernavn hentes fra `BASIC_AUTH_USERNAME` eller `USERNAME`
 - Passord hentes fra `BASIC_AUTH_PASSWORD` eller `PASSWORD`
 - Etter vellykket innlogging settes en `HttpOnly` cookie
-- `AUTH_SESSION_SECRET` er valgfri, men anbefalt i produksjon
+- Hver innlogging får en tilfeldig økt-ID med 12 timers utløp kontrollert på serveren
+- Utlogging ugyldiggjør økten på serveren. Omstart/deploy krever ny innlogging
+- Brukernavn og passord beholdes ved omstart; ingen egen økt-hemmelighet kreves
+- Produksjon/Railway krever alltid credentials, selv med `ALLOW_UNAUTHENTICATED=true`
+- Forespørsler fra andre nettstedsopprinnelser avvises for å hindre CSRF
+- Passordgjetting begrenses per IP og samlet for innloggingsendepunktet
 - Hvis credentials mangler stopper appen oppstart (fail-closed)
 - `ALLOW_UNAUTHENTICATED=true` kan brukes kun for lokal testing
 
@@ -242,7 +260,6 @@ Appen er klar for Railway med standard Node deploy:
   - `BFL_API_BASE_URL`, `BFL_POLL_INTERVAL_MS` og `BFL_POLL_TIMEOUT_SECONDS` (valgfritt)
   - `BASIC_AUTH_USERNAME` (anbefalt) eller `USERNAME`
   - `BASIC_AUTH_PASSWORD` (anbefalt) eller `PASSWORD`
-  - `AUTH_SESSION_SECRET` (anbefalt)
   - `LOGIN_WINDOW_SECONDS` og `LOGIN_MAX_ATTEMPTS_PER_IP` (valgfritt)
   - `LOGIN_FAILED_WINDOW_SECONDS`, `LOGIN_MAX_FAILED_ATTEMPTS_PER_IP`, `LOGIN_FAILED_LOCKOUT_SECONDS` (valgfritt)
   - `GENERATE_WINDOW_SECONDS`, `GENERATE_MAX_REQUESTS_PER_IP`, `GENERATE_MAX_REQUESTS_PER_USER` (valgfritt)

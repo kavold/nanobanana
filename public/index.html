@@ -537,6 +537,9 @@
 </head>
 <body>
     <div class="app-container">
+        <form method="post" action="/logout" style="display:flex;justify-content:flex-end;margin-bottom:8px">
+            <button type="submit" style="width:auto;padding:8px 16px;font-size:13px;background:#e2e8f0;color:#334155">Logg ut</button>
+        </form>
         <div class="header">
             <div class="brand-mark" aria-hidden="true">IS</div>
             <h1 class="main-title">Image Studio</h1>
@@ -762,15 +765,16 @@
                     <label><input type="radio" name="videoTask" value="motion"><strong>Overfør bevegelser</strong><small>La en figur følge en filmet fremføring.</small></label>
                 </div>
                 <div class="form-group"><label for="videoModel">Modell</label><select id="videoModel" required></select><small id="videoModelHelp"></small></div>
-                <div id="videoImageGroup" class="form-group" hidden><label for="videoImage">Startbilde eller bilde av figuren</label><input id="videoImage" type="file" accept="image/png,image/jpeg,image/webp"><small>PNG, JPG eller WebP, maks 10 MB.</small><p id="videoImageName"></p><img id="videoImagePreview" hidden alt="Valgt referansebilde"></div>
-                <div id="videoReferenceGroup" class="form-group" hidden><label for="videoReference">Video med fremføringen</label><input id="videoReference" type="file" accept="video/mp4,video/quicktime,video/webm"><small>3–10 sekunder, maks 50 MB. Vis hode og overkropp eller hele kroppen tydelig. Resultatet følger referansene.</small></div>
+                <div id="videoImageGroup" class="form-group" hidden><label for="videoImage">Startbilde eller bilde av figuren</label><input id="videoImage" type="file" accept="image/png,image/jpeg,image/webp"><small>PNG, JPG eller WebP, maks 50 MB. Store bilder tilpasses automatisk til videoen. Originalen endres ikke.</small><p id="videoImageName"></p><img id="videoImagePreview" hidden alt="Valgt referansebilde"></div>
+                <div id="videoReferenceGroup" class="form-group" hidden><label for="videoReference">Video med fremføringen</label><input id="videoReference" type="file" accept="video/mp4,video/quicktime,video/webm"><small>3–30 sekunder, maks 50 MB. Vis hode og overkropp eller hele kroppen tydelig. Resultatet følger referansene.</small></div>
                 <div class="form-group"><label for="videoPrompt">Beskrivelse</label><textarea id="videoPrompt" maxlength="4000" required placeholder="Hva skal skje i klippet? Beskriv også lyd hvis du vil ha det."></textarea></div>
                 <div id="videoSettings" class="video-settings">
                     <div><label for="videoDuration">Varighet</label><select id="videoDuration"><option value="5">5 sekunder</option><option value="8">8 sekunder</option><option value="10">10 sekunder</option></select></div>
                     <div><label for="videoRatio">Format</label><select id="videoRatio"><option value="16:9">Liggende · 16:9</option><option value="9:16">Stående · 9:16</option></select></div>
+                    <div><label for="videoResolution">Oppløsning</label><select id="videoResolution"><option value="720p">720p</option></select></div>
                 </div>
                 <label class="video-audio"><input id="videoAudio" type="checkbox" checked><span id="videoAudioLabel">Generer lyd</span></label>
-                <p id="videoResolution" class="video-muted"></p>
+                <p id="videoResolutionHelp" class="video-muted"></p>
                 <button type="submit" id="videoQuoteButton">Se prisanslag</button>
                 <div id="videoQuote" class="video-quote" hidden>
                     <strong id="videoQuoteTitle"></strong><p id="videoQuoteDetail"></p>
@@ -779,6 +783,10 @@
                 </div>
                 <p id="videoError" class="video-error" role="alert"></p>
             </form>
+            <div id="videoProgress" class="video-progress" role="status" tabindex="-1" hidden>
+                <span class="video-spinner" aria-hidden="true"></span>
+                <div><strong id="videoProgressTitle">Videoen genereres</strong><p id="videoProgressDetail"></p><p id="videoElapsed" class="video-muted"></p><small>Dette kan ta flere minutter. Du kan komme tilbake til siden; jobben fortsetter.</small></div>
+            </div>
             <div class="video-history-heading"><h2>Videoene dine</h2><button id="videoRefresh" type="button">Oppdater</button></div>
             <p id="videoBudget" class="video-muted"></p>
             <div id="videoJobs" aria-live="polite"></div>
@@ -870,7 +878,12 @@
                     if (!chunk.web) {
                         return;
                     }
-                    const uri = chunk.web.uri ? escapeHtml(chunk.web.uri) : '';
+                    let safeUri;
+                    try {
+                        safeUri = new URL(chunk.web.uri);
+                        if (!['https:', 'http:'].includes(safeUri.protocol)) return;
+                    } catch { return; }
+                    const uri = escapeHtml(safeUri.href);
                     const title = chunk.web.title ? escapeHtml(chunk.web.title) : uri;
                     html += '<li>';
                     html += `<a href="${uri}" target="_blank" rel="noopener noreferrer">${title}</a>`;
@@ -883,7 +896,7 @@
             }
 
             if (groundingMetadata.searchEntryPoint && groundingMetadata.searchEntryPoint.renderedContent) {
-                html += `<div class="search-entry-point">${groundingMetadata.searchEntryPoint.renderedContent}</div>`;
+                html += `<iframe class="search-entry-point" title="Google-søk" sandbox="" referrerpolicy="no-referrer" style="width:100%;border:0;min-height:120px" srcdoc="${escapeHtml(groundingMetadata.searchEntryPoint.renderedContent)}"></iframe>`;
             }
 
             html += '</div>';
@@ -1269,7 +1282,7 @@ Treat this strictly as photographic restoration and color correction, not scene 
                     message = 'Nettverksfeil. Klarte ikke kontakte serveren. Sjekk tilkobling og prøv igjen.';
                 }
 
-                document.getElementById('resultText').innerHTML = `<strong>Feil:</strong> ${message}`;
+                document.getElementById('resultText').innerHTML = `<strong>Feil:</strong> ${escapeHtml(message)}`;
             }
         });
         

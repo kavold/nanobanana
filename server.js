@@ -3,8 +3,7 @@ const multer = require('multer');
 const { GoogleGenAI } = require('@google/genai');
 const fs = require('fs');
 const path = require('path');
-const cors = require('cors');
-const crypto = require('crypto');
+const { createAuthSessions, constantTimeEqual } = require('./auth-sessions');
 const dotenv = require('dotenv');
 const { normalizeUploadedImages } = require('./image-processing');
 const { saveExportImage } = require('./image-export');
@@ -50,8 +49,8 @@ const BASIC_AUTH_PASSWORD = readEnv('BASIC_AUTH_PASSWORD') || readEnv('PASSWORD'
 const authEnabled = Boolean(BASIC_AUTH_USER && BASIC_AUTH_PASSWORD);
 const AUTH_COOKIE_NAME = 'studio_auth';
 const AUTH_COOKIE_MAX_AGE_SECONDS = 60 * 60 * 12; // 12 hours
-const AUTH_SESSION_SECRET = readEnv('AUTH_SESSION_SECRET') || BASIC_AUTH_PASSWORD || 'fallback-auth-secret';
 const ALLOW_UNAUTHENTICATED = readEnv('ALLOW_UNAUTHENTICATED').toLowerCase() === 'true';
+const isProduction = readEnv('NODE_ENV') === 'production' || Boolean(readEnv('RAILWAY_ENVIRONMENT_ID'));
 const LOGIN_WINDOW_MS = readEnvNumber('LOGIN_WINDOW_SECONDS', 10 * 60) * 1000;
 const LOGIN_MAX_ATTEMPTS_PER_IP = readEnvNumber('LOGIN_MAX_ATTEMPTS_PER_IP', 15);
 const LOGIN_FAILED_WINDOW_MS = readEnvNumber('LOGIN_FAILED_WINDOW_SECONDS', 15 * 60) * 1000;
@@ -62,21 +61,39 @@ const GENERATE_MAX_REQUESTS_PER_IP = readEnvNumber('GENERATE_MAX_REQUESTS_PER_IP
 const GENERATE_MAX_REQUESTS_PER_USER = readEnvNumber('GENERATE_MAX_REQUESTS_PER_USER', 120);
 const GENERATE_MAX_PER_HOUR = readEnvNumber('GENERATE_MAX_PER_HOUR', 300);
 const GENERATE_MAX_PER_DAY = readEnvNumber('GENERATE_MAX_PER_DAY', 1200);
-const EXPECTED_AUTH_TOKEN = crypto
-  .createHash('sha256')
-  .update(`${BASIC_AUTH_USER}:${BASIC_AUTH_PASSWORD}:${AUTH_SESSION_SECRET}`)
-  .digest('hex');
+const authSessions = createAuthSessions({ ttlMs: AUTH_COOKIE_MAX_AGE_SECONDS * 1000 });
 
-if (!authEnabled && !ALLOW_UNAUTHENTICATED) {
+if (!authEnabled && (isProduction || !ALLOW_UNAUTHENTICATED)) {
   throw new Error('Auth credentials are required. Set BASIC_AUTH_USERNAME/BASIC_AUTH_PASSWORD (or USERNAME/PASSWORD). Use ALLOW_UNAUTHENTICATED=true only for local testing.');
 }
 
-app.set('trust proxy', 1);
-app.use(cors());
+// Railway terminates TLS at its proxy. Local runs trust no forwarded headers.
+app.set('trust proxy', isProduction ? 1 : 0);
+app.disable('x-powered-by');
 app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
 app.use((req, res, next) => {
   res.setHeader('X-Robots-Tag', 'noindex, nofollow, noarchive');
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('Content-Security-Policy', "frame-ancestors 'none'; base-uri 'self'; object-src 'none'");
+  res.setHeader('Referrer-Policy', 'no-referrer');
+  res.setHeader('Cache-Control', 'private, no-store');
+  if (isProduction) res.setHeader('Strict-Transport-Security', 'max-age=15552000');
+  if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method)) {
+    const site = req.get('sec-fetch-site');
+    if (site && !['same-origin', 'none'].includes(site)) {
+      return res.status(403).json({ error: 'Forespørselen må komme fra appens egen side.' });
+    }
+    const origin = req.get('origin');
+    if (origin) {
+      try {
+        if (new URL(origin).origin !== `${req.protocol}://${req.get('host')}`) {
+          return res.status(403).json({ error: 'Forespørselen må komme fra appens egen side.' });
+        }
+      } catch { return res.status(403).json({ error: 'Ugyldig avsender.' }); }
+    }
+  }
   next();
 });
 
@@ -86,10 +103,6 @@ app.get('/health', (req, res) => {
 });
 
 function getClientIp(req) {
-  const forwarded = req.headers['x-forwarded-for'];
-  if (typeof forwarded === 'string' && forwarded.trim() !== '') {
-    return forwarded.split(',')[0].trim();
-  }
   return req.ip || req.socket.remoteAddress || 'unknown';
 }
 
@@ -138,6 +151,14 @@ const loginRateLimiter = createRateLimiter({
   windowMs: LOGIN_WINDOW_MS,
   max: LOGIN_MAX_ATTEMPTS_PER_IP,
   keyFn: (req) => getClientIp(req),
+  onLimit: (_req, res) => res.redirect('/login?error=rate')
+});
+
+// Also bound guesses across changing IPs against this single-user account.
+const loginAccountRateLimiter = createRateLimiter({
+  windowMs: LOGIN_WINDOW_MS,
+  max: 60,
+  keyFn: () => 'studio-login',
   onLimit: (_req, res) => res.redirect('/login?error=rate')
 });
 
@@ -309,7 +330,7 @@ function clearFailedLoginAttempts(req) {
 }
 
 function parseCookies(req) {
-  const cookies = {};
+  const cookies = Object.create(null);
   const header = req.headers.cookie || '';
   if (!header) {
     return cookies;
@@ -341,30 +362,17 @@ function hasValidAuthCookie(req) {
     return true;
   }
 
-  const cookies = parseCookies(req);
-  const cookieValue = cookies[AUTH_COOKIE_NAME];
-  if (!cookieValue) {
-    return false;
-  }
-
-  const received = Buffer.from(cookieValue, 'utf8');
-  const expected = Buffer.from(EXPECTED_AUTH_TOKEN, 'utf8');
-  if (received.length !== expected.length) {
-    return false;
-  }
-  return crypto.timingSafeEqual(received, expected);
+  return authSessions.valid(parseCookies(req)[AUTH_COOKIE_NAME]);
 }
 
-function authCookieHeader(req) {
-  const forwardedProto = req.headers['x-forwarded-proto'];
-  const isSecureRequest = req.secure || forwardedProto === 'https';
+function authCookieHeader(req, token) {
+  const isSecureRequest = isProduction || req.secure;
   const securePart = isSecureRequest ? '; Secure' : '';
-  return `${AUTH_COOKIE_NAME}=${encodeURIComponent(EXPECTED_AUTH_TOKEN)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${AUTH_COOKIE_MAX_AGE_SECONDS}${securePart}`;
+  return `${AUTH_COOKIE_NAME}=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${AUTH_COOKIE_MAX_AGE_SECONDS}${securePart}`;
 }
 
 function clearAuthCookieHeader(req) {
-  const forwardedProto = req.headers['x-forwarded-proto'];
-  const isSecureRequest = req.secure || forwardedProto === 'https';
+  const isSecureRequest = isProduction || req.secure;
   const securePart = isSecureRequest ? '; Secure' : '';
   return `${AUTH_COOKIE_NAME}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0${securePart}`;
 }
@@ -376,7 +384,7 @@ app.get('/login', (req, res) => {
   return res.sendFile(path.join(__dirname, 'public', 'login.html'));
 });
 
-app.post('/login', loginRateLimiter, (req, res) => {
+app.post('/login', loginRateLimiter, loginAccountRateLimiter, (req, res) => {
   if (!authEnabled) {
     return res.redirect('/');
   }
@@ -388,9 +396,12 @@ app.post('/login', loginRateLimiter, (req, res) => {
   }
 
   const { username = '', password = '' } = req.body;
-  if (username === BASIC_AUTH_USER && password === BASIC_AUTH_PASSWORD) {
+  const validUser = constantTimeEqual(username, BASIC_AUTH_USER);
+  const validPassword = constantTimeEqual(password, BASIC_AUTH_PASSWORD);
+  if (validUser && validPassword) {
     clearFailedLoginAttempts(req);
-    res.setHeader('Set-Cookie', authCookieHeader(req));
+    authSessions.revoke(parseCookies(req)[AUTH_COOKIE_NAME]);
+    res.setHeader('Set-Cookie', authCookieHeader(req, authSessions.issue()));
     return res.redirect('/');
   }
 
@@ -404,6 +415,7 @@ app.post('/login', loginRateLimiter, (req, res) => {
 });
 
 app.post('/logout', (req, res) => {
+  authSessions.revoke(parseCookies(req)[AUTH_COOKIE_NAME]);
   res.setHeader('Set-Cookie', clearAuthCookieHeader(req));
   return res.redirect('/login');
 });
@@ -1048,7 +1060,7 @@ async function generateWithOpenAIImageModel(modelId, modelConfigMeta, requestCon
     }
   } catch (error) {
     const message = error && error.message ? error.message : 'Ukjent OpenAI-feil';
-    console.error(`Error from model ${modelId}:`, error);
+    console.error(`Image provider failed: ${modelId} (${error?.name || 'Error'})`);
     modelResult.error = message;
     if (modelResult.debug.attempts.length === 0) {
       modelResult.debug.attempts.push({
@@ -1123,7 +1135,7 @@ async function generateWithXaiImageModel(modelId, modelConfigMeta, requestContex
     }
   } catch (error) {
     const message = error && error.message ? error.message : 'Ukjent xAI-feil';
-    console.error(`Error from model ${modelId}:`, error);
+    console.error(`Image provider failed: ${modelId} (${error?.name || 'Error'})`);
     modelResult.error = message;
     modelResult.debug.attempts[modelResult.debug.attempts.length - 1].summary = `exception=${message}`;
   }
@@ -1323,7 +1335,7 @@ async function generateWithBflImageModel(modelId, modelConfigMeta, requestContex
     }
   } catch (error) {
     const message = error && error.message ? error.message : 'Ukjent BFL-feil';
-    console.error(`Error from model ${modelId}:`, error);
+    console.error(`Image provider failed: ${modelId} (${error?.name || 'Error'})`);
     modelResult.error = message;
     if (modelResult.debug.attempts.length === 0) {
       modelResult.debug.attempts.push({
@@ -1420,7 +1432,7 @@ async function generateWithGeminiImageModel(modelId, modelConfigMeta, requestCon
       modelSucceeded = true;
       break;
     } catch (modelError) {
-      console.error(`Error from model ${modelId} attempt ${attempt.label}:`, modelError);
+      console.error(`Image provider failed: ${modelId}, ${attempt.label} (${modelError?.name || 'Error'})`);
       const message = modelError && modelError.message
         ? modelError.message
         : 'Ukjent modellfeil';
@@ -1619,7 +1631,7 @@ app.post('/generate', generateIpRateLimiter, generateUserRateLimiter, upload.arr
       }
     }
 
-    console.log('Sending image generation request with prompt:', prompt);
+    console.log('Sending image generation request');
     console.log('Intuvio brand guidelines:', useIntuvioBrandGuidelines === 'true' ? 'enabled' : 'disabled');
     console.log('Intuvio logo:', logoFile ? intuvioLogo : 'none');
     console.log('Number of input images:', inputFiles.length);
@@ -1680,9 +1692,7 @@ app.post('/generate', generateIpRateLimiter, generateUserRateLimiter, upload.arr
     });
 
   } catch (error) {
-    console.error('Detailed error:', error);
-    console.error('Error message:', error.message);
-    console.error('Error stack:', error.stack);
+    console.error('Image generation failed:', error?.name || 'Error');
 
     cleanupUploadedFiles(req.files);
     
@@ -1702,7 +1712,7 @@ app.post('/generate', generateIpRateLimiter, generateUserRateLimiter, upload.arr
       errorMessage = 'This type of request is not supported by the model yet.';
     }
     
-    res.status(500).json({ error: errorMessage + ' - ' + error.message });
+    res.status(500).json({ error: errorMessage });
   }
 });
 
