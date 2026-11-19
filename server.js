@@ -77,7 +77,9 @@ app.use((req, res, next) => {
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('X-Frame-Options', 'DENY');
   res.setHeader('Content-Security-Policy', "frame-ancestors 'none'; base-uri 'self'; object-src 'none'");
-  res.setHeader('Referrer-Policy', 'no-referrer');
+  // no-referrer turns Origin into "null" on browser form POSTs, including login.
+  // same-origin retains the origin for our own forms while hiding it cross-site.
+  res.setHeader('Referrer-Policy', 'same-origin');
   res.setHeader('Cache-Control', 'private, no-store');
   if (isProduction) res.setHeader('Strict-Transport-Security', 'max-age=15552000');
   if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method)) {

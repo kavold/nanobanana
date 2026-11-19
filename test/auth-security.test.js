@@ -74,6 +74,7 @@ test('login gate covers generation, video endpoints and files; cookies and brute
   assert.equal(forged.status, 401);
   const first = await login();
   assert.equal(first.status, 302);
+  assert.equal(first.headers.get('referrer-policy'), 'same-origin', 'browser form POSTs must retain their own Origin');
   const cookie = first.headers.get('set-cookie');
   assert.match(cookie, /HttpOnly/); assert.match(cookie, /Secure/); assert.match(cookie, /SameSite=Lax/);
   const session = cookie.split(';')[0];
@@ -86,6 +87,9 @@ test('login gate covers generation, video endpoints and files; cookies and brute
   const crossSite = await request('/generate', { method: 'POST', headers: { Cookie: session, Origin: 'https://attacker.example' } });
   assert.equal(crossSite.status, 403);
   const crossSiteLogin = await login({ Origin: 'https://attacker.example' }); assert.equal(crossSiteLogin.status, 403);
+  const opaqueOrigin = await login({ Origin: 'null' }); assert.equal(opaqueOrigin.status, 403, 'opaque cross-origin forms remain blocked');
+  const browserForm = await login({ Origin: base, 'Sec-Fetch-Site': 'same-origin', 'Sec-Fetch-Mode': 'navigate' });
+  assert.equal(browserForm.status, 302); assert.ok(browserForm.headers.get('set-cookie'), 'normal browser form can log in');
   const fetchMetadata = await request('/api/video/jobs', { method: 'POST', headers: { Cookie: session, 'Sec-Fetch-Site': 'cross-site' } });
   assert.equal(fetchMetadata.status, 403);
   const sameSite = await request('/generate', { method: 'POST', headers: { Cookie: session, Origin: base } });
