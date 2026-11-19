@@ -35,6 +35,13 @@ Video bruker ekte leverandør-API-er. Aktiv jobb vises med spinner, fase og medg
 prisanslag og bekreft genereringen. Bilder fungerer fortsatt som før. Modeller uten
 nøkkel vises i listen, men genereringsforsøket gir en tydelig feilmelding uten API-kall.
 
+Ved «Animer et bilde» og «Overfør bevegelser» kan du velge «Lag et bilde først».
+Du går da til Bilder med en forklaring og velger «Bruk i video» under et resultat.
+Appen tar bildet tilbake til den opprinnelige videooppgaven uten å endre valgt modell,
+prompt, varighet, oppløsning eller opplastet fremføringsvideo. Du kan også gå tilbake
+uten å velge et nytt bilde. Bildet og videoen genereres i to separate, betalte steg;
+å bytte fane eller velge et ferdig bilde starter ingen generering.
+
 Kling krever `ffprobe` på serverens PATH (eller `FFPROBE_PATH`) for å kontrollere
 faktisk varighet. Referansevideoer begrenses til 3–30 sekunder / 50 MB, bilder til
 50 MB i JPG/PNG/WebP. Bilder roteres etter EXIF, forminskes til valgt videostørrelse

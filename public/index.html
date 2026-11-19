@@ -549,6 +549,11 @@
             <button type="button" id="videoTab" aria-controls="videoPanel" aria-pressed="false">Video</button>
         </nav>
         <section id="imagesPanel" aria-label="Bildegenerator">
+        <div id="videoImageBridge" class="video-image-bridge" role="status" hidden>
+            <strong>Lag bildet til videoen</strong>
+            <p>Last eventuelt opp et bilde av deg selv som referanse. Lag bildet du ønsker, og trykk «Bruk i video» under resultatet. Videooppgaven og innstillingene dine beholdes.</p>
+            <button id="videoImageBridgeCancel" type="button">Tilbake til video uten nytt bilde</button>
+        </div>
         <div class="model-info">
             <h3>Profesjonell AI bildegenerator</h3>
             <p class="model-description">
@@ -765,7 +770,12 @@
                     <label><input type="radio" name="videoTask" value="motion"><strong>Overfør bevegelser</strong><small>La en figur følge en filmet fremføring.</small></label>
                 </div>
                 <div class="form-group"><label for="videoModel">Modell</label><select id="videoModel" required></select><small id="videoModelHelp"></small></div>
-                <div id="videoImageGroup" class="form-group" hidden><label for="videoImage">Startbilde eller bilde av figuren</label><input id="videoImage" type="file" accept="image/png,image/jpeg,image/webp"><small>PNG, JPG eller WebP, maks 50 MB. Store bilder tilpasses automatisk til videoen. Originalen endres ikke.</small><p id="videoImageName"></p><img id="videoImagePreview" hidden alt="Valgt referansebilde"></div>
+                <div id="videoImageGroup" class="form-group" hidden>
+                    <label for="videoImage">Startbilde eller bilde av figuren</label>
+                    <button type="button" id="videoCreateImage" class="video-create-image">Lag et bilde først</button>
+                    <p class="video-muted">Lag for eksempel en superheltvariant av deg selv, og kom tilbake hit med bildet. Eller velg en fil nedenfor.</p>
+                    <input id="videoImage" type="file" accept="image/png,image/jpeg,image/webp"><small>PNG, JPG eller WebP, maks 50 MB. Store bilder tilpasses automatisk til videoen. Originalen endres ikke.</small><p id="videoImageName"></p><img id="videoImagePreview" hidden alt="Valgt referansebilde">
+                </div>
                 <div id="videoReferenceGroup" class="form-group" hidden><label for="videoReference">Video med fremføringen</label><input id="videoReference" type="file" accept="video/mp4,video/quicktime,video/webm"><small>3–30 sekunder, maks 50 MB. Vis hode og overkropp eller hele kroppen tydelig. Resultatet følger referansene.</small></div>
                 <div class="form-group"><label for="videoPrompt">Beskrivelse</label><textarea id="videoPrompt" maxlength="4000" required placeholder="Hva skal skje i klippet? Beskriv også lyd hvis du vil ha det."></textarea></div>
                 <div id="videoSettings" class="video-settings">
@@ -938,7 +948,7 @@
                 if (item.metadataWarning) html += `<p role="status">${escapeHtml(item.metadataWarning)}</p>`;
                 html += '<div class="image-actions">';
                 html += `<a href="${imageUrl}" download="${escapeHtml(item.image.split('/').pop())}" class="download-btn">Last ned bilde</a>`;
-                html += `<button type="button" class="download-btn" data-animate-video="${imageUrl}">Animer bildet</button>`;
+                html += `<button type="button" class="download-btn" data-animate-video="${imageUrl}">Bruk i video</button>`;
                 html += `<button type="button" class="download-btn" style="margin-left: 10px; background: linear-gradient(135deg, #0f766e 0%, #0f4c81 100%);" onclick="addGeneratedImageAsReference('${imageUrl}')">Bruk som referanse</button>`;
                 html += '</div>';
                 html += '</div>';

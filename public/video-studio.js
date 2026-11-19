@@ -4,6 +4,7 @@
   const states = { queued: 'I kø', submitting: 'Sender til leverandøren', running: 'Genereres', downloading: 'Lagrer video', completed: 'Ferdig', attention: 'Må kontrolleres' };
   let config; let imageFile; let requestId = crypto.randomUUID(); let sending = false; let previewUrl;
   let activeJob = null;
+  let imageReturnTask = null;
   let quoteRevision = 0;
   function showVideo(show) {
     $('imagesPanel').hidden = show; $('videoPanel').hidden = !show;
@@ -12,7 +13,20 @@
     if (show) refresh();
   }
   $('imagesTab').addEventListener('click', () => showVideo(false));
-  $('videoTab').addEventListener('click', () => showVideo(true));
+  $('videoTab').addEventListener('click', () => {
+    imageReturnTask = null; $('videoImageBridge').hidden = true; showVideo(true);
+  });
+  $('videoCreateImage').addEventListener('click', () => {
+    imageReturnTask = task();
+    $('videoImageBridge').hidden = false;
+    showVideo(false);
+    $('videoImageBridge').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    $('prompt').focus({ preventScroll: true });
+  });
+  $('videoImageBridgeCancel').addEventListener('click', () => {
+    imageReturnTask = null; $('videoImageBridge').hidden = true; showVideo(true);
+    $('videoCreateImage').focus();
+  });
   function task() { return document.querySelector('input[name="videoTask"]:checked').value; }
   function model() { return config?.models.find(m => m.id === $('videoModel').value); }
   function invalidate() { $('videoQuote').hidden = true; quoteRevision++; requestId = crypto.randomUUID(); }
@@ -180,8 +194,13 @@
       const response = await fetch(url);
       if (!response.ok) throw new Error('Kunne ikke hente bildet.');
       const blob = await response.blob();
-      document.querySelector('input[name="videoTask"][value="image"]').checked = true;
-      updateTask(); setImage(new File([blob], url.split('/').pop(), { type: blob.type }));
+      const targetTask = imageReturnTask || 'image';
+      if (task() !== targetTask) {
+        document.querySelector(`input[name="videoTask"][value="${targetTask}"]`).checked = true;
+        updateTask();
+      }
+      setImage(new File([blob], url.split('/').pop(), { type: blob.type }));
+      imageReturnTask = null; $('videoImageBridge').hidden = true;
       showVideo(true); $('videoPrompt').focus();
     } catch (error) { showVideo(true); $('videoError').textContent = error.message; }
   });
