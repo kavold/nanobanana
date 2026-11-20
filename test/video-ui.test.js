@@ -18,7 +18,7 @@ async function ui(t) {
     models: VIDEO_MODELS.map(({ key, ...m }) => ({ ...m, available: true, connected: m.provider === 'fal' })) };
   w.fetch = async (url, options) => {
     requests.push({ url, options });
-    const data = url.endsWith('/config') ? config : url.endsWith('/jobs') ? { jobs: [], reservedTodayUsd: 0 } : { estimate: .3, reserved: .425, duration: 5, aspectRatio: '16:9', resolution: '720p', priceDate: '2026-11-19' };
+    const data = url.endsWith('/config') ? config : url.endsWith('/exchange-rate') ? { date: '2026-11-19', nokPerUsd: 9.6866 } : url.endsWith('/jobs') ? { jobs: [], reservedTodayUsd: 0 } : { estimate: .3, reserved: .425, duration: 5, aspectRatio: '16:9', resolution: '720p', priceDate: '2026-11-19' };
     return { ok: true, status: 200, json: async () => data, blob: async () => new w.Blob(['image'], { type: 'image/png' }) };
   };
   w.eval(fs.readFileSync(path.join(__dirname, '../public/video-studio.js'), 'utf8'));
@@ -100,4 +100,5 @@ test('quote form sends audio/image for a talking portrait and omits leftover vid
   assert.equal(data.get('image').name, 'portrait.png');
   assert.equal(data.has('video'), false);
   assert.equal(s.$('videoQuote').hidden, false);
+  assert.match(s.$('videoQuoteTitle').textContent, /2,91.*\$0\.30/);
 });

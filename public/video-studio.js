@@ -1,6 +1,12 @@
 (() => {
   const $ = id => document.getElementById(id);
-  const money = value => `$${Number(value).toFixed(2)}`;
+  const nok = new Intl.NumberFormat('nb-NO', { style: 'currency', currency: 'NOK' });
+  let exchangeRate;
+  function money(value) {
+    const usd = Number(value);
+    const dollars = `$${usd.toFixed(2)}`;
+    return exchangeRate ? `ca. ${nok.format(usd * exchangeRate.nokPerUsd)} (${dollars})` : dollars;
+  }
   const states = { queued: 'I kø', submitting: 'Sender til leverandøren', running: 'Genereres', downloading: 'Lagrer video', completed: 'Ferdig', attention: 'Må kontrolleres' };
   let config; let imageFile; let requestId = crypto.randomUUID(); let sending = false; let previewUrl;
   let activeJob = null;
@@ -175,9 +181,9 @@
     try {
       const quote = await api('/quote', { method: 'POST', body: formData() });
       if (revision !== quoteRevision) return;
-      $('videoQuoteTitle').textContent = `Anslått pris: ${money(quote.estimate)} USD`;
+      $('videoQuoteTitle').textContent = `Anslått pris: ${money(quote.estimate)}`;
       const durationLabel = quote.speechTiming ? `${quote.duration} sekunder i prisanslaget` : `${quote.duration} sekunder`;
-      $('videoQuoteDetail').textContent = `${durationLabel} · ${quote.aspectRatio} · ${quote.resolution}. Ca. ${money(quote.estimate)}, med ${money(quote.reserved)} reservert mot appens grense. Priser kontrollert ${quote.priceDate}. ${connection(model())}.`;
+      $('videoQuoteDetail').textContent = `${durationLabel} · ${quote.aspectRatio} · ${quote.resolution}. ${money(quote.reserved)} reservert mot appens grense. Priser kontrollert ${quote.priceDate}. ${connection(model())}.`;
       if (quote.inputImage) {
         const image = quote.inputImage;
         $('videoQuoteDetail').textContent += ` Bildet tilpasses fra ${image.originalWidth} × ${image.originalHeight} til ${image.width} × ${image.height} piksler (${(image.bytes / 1024 / 1024).toFixed(1)} MB).`;
@@ -243,7 +249,7 @@
         $('videoProgressDetail').textContent = `${config.models.find(m => m.id === activeJob.model)?.label || activeJob.model} · ${states[activeJob.status]}`;
         updateElapsed();
       }
-      $('videoBudget').textContent = `Reservert i dag / uavklart: ${money(data.reservedTodayUsd)} av ${money(config.maxDayUsd)} USD. Maks per jobb: ${money(config.maxJobUsd)}.`;
+      $('videoBudget').textContent = `Reservert i dag / uavklart: ${money(data.reservedTodayUsd)} av ${money(config.maxDayUsd)}. Maks per jobb: ${money(config.maxJobUsd)}.`;
       const serialized = JSON.stringify(data.jobs);
       if (lastJobs === serialized) return; lastJobs = serialized;
       $('videoJobs').replaceChildren();
@@ -254,7 +260,7 @@
         const status = document.createElement('p'); status.className = 'video-status'; status.textContent = states[job.status] || job.status;
         const prompt = document.createElement('p'); prompt.textContent = job.prompt;
         const details = document.createElement('p'); details.className = 'video-muted';
-        details.textContent = `${new Date(job.createdAt).toLocaleString('nb-NO')} · ${job.duration} s · ${job.resolution || '720p'} · anslag ${money(job.estimate)} USD`;
+        details.textContent = `${new Date(job.createdAt).toLocaleString('nb-NO')} · ${job.duration} s · ${job.resolution || '720p'} · anslag ${money(job.estimate)}`;
         const message = document.createElement('p'); message.textContent = job.message;
         card.append(title, status, prompt, details, message);
         if (job.videoUrl) {
@@ -287,8 +293,12 @@
       showVideo(true); $('videoPrompt').focus();
     } catch (error) { showVideo(true); $('videoError').textContent = error.message; }
   });
-  api('/config').then(data => {
+  Promise.all([api('/config'), api('/exchange-rate').catch(() => null)]).then(([data, rate]) => {
     config = data;
+    exchangeRate = rate?.nokPerUsd > 0 ? rate : null;
+    $('videoExchangeRate').textContent = exchangeRate
+      ? `Kroneanslag basert på Norges Banks kurs ${exchangeRate.date}. 1 USD ≈ ${nok.format(exchangeRate.nokPerUsd)}.`
+      : 'Valutakursen er utilgjengelig. Beløpene vises i USD.';
     $('videoBuild').textContent = `Appversjon: ${config.version || 'lokal'}`;
     $('videoTasks').replaceChildren(...Object.entries(config.tasks).map(([value, info]) => {
       const label = document.createElement('label');

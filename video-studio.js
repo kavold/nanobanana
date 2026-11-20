@@ -1,3 +1,4 @@
+const { getUsdNokRate } = require('./exchange-rate');
 const express = require('express');
 const multer = require('multer');
 const fs = require('node:fs');
@@ -119,6 +120,7 @@ function createVideoStudio({ readEnv, directory = path.join(__dirname, 'data', '
     };
   }
   router.get('/config', (req, res) => res.json(catalogue()));
+  router.get('/exchange-rate', async (req, res) => res.json(await getUsdNokRate()));
   router.get('/jobs', (req, res) => res.json({ jobs: jobs.map(publicJob).reverse(), reservedTodayUsd: spentToday() }));
   router.get('/jobs/:id/file', (req, res) => {
     const job = jobs.find(j => j.id === req.params.id && j.status === 'completed');
