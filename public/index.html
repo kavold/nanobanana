@@ -783,6 +783,10 @@
                 </div>
                 <div id="videoReferenceGroup" class="form-group" hidden><label id="videoReferenceLabel" for="videoReference">Video med fremføringen</label><input id="videoReference" type="file" accept="video/mp4,video/quicktime,video/webm"><small id="videoReferenceHelp">Maks 200 MB. Videoen komprimeres automatisk ved behov. Varighet og krav følger valgt modell.</small></div>
                 <div id="videoAudioGroup" class="form-group" hidden><label for="videoAudioFile">Ferdig tale som lydfil</label><input id="videoAudioFile" type="file" accept="audio/mpeg,audio/wav,audio/mp4,audio/ogg,audio/aac,audio/flac"><small>MP3, WAV, M4A, OGG, AAC eller FLAC, maks 10 MB. Varigheten måles før prisanslaget. Lydfilen bestemmer ordene; tale lages ikke automatisk fra teksten.</small></div>
+                <div id="videoTrimSpeechGroup" class="form-group" hidden>
+                    <label class="video-audio"><input id="videoTrimSpeech" type="checkbox">Trim videoen etter lydsporet</label>
+                    <small>Appen legger til 0,5 sekunder stillhet etter lyden og klipper slutten av videoen til samme lengde. Videoen må dekke hele lydsporet, inkludert stillheten.</small>
+                </div>
                 <div id="videoPromptGroup" class="form-group"><label for="videoPrompt">Beskrivelse</label><textarea id="videoPrompt" maxlength="4000" required placeholder="Hva skal skje i klippet? Beskriv også lyd hvis du vil ha det."></textarea></div>
                 <div id="videoSettings" class="video-settings">
                     <div id="videoDurationGroup"><label for="videoDuration">Varighet</label><select id="videoDuration"><option value="5">5 sekunder</option></select></div>

@@ -128,7 +128,7 @@ const FAL_MODELS = [
   fal('fal-sync-pro', 'Sync Lipsync v2 Pro', 'Sync', { lipsync: 'fal-ai/sync-lipsync/v2/pro' }, {
     minDuration: 3, maxDuration: 30, rates: { auto: 5 / 60 }, defaultResolution: 'auto', ratios: ['16:9'], audio: 'input',
     bestFor: 'Tilpass munnbevegelsene i en eksisterende video til ny ferdig tale.',
-    caveat: 'Video og lyd må ha omtrent samme varighet i appen. Endrer munnbevegelse; erstatter ikke hele personen.',
+    caveat: 'Bruk «Trim videoen etter lydsporet» hvis videoen er lengre. Endrer munnbevegelse; erstatter ikke hele personen.',
     recommendation: 'Video + ny tale', goals: ['general'], defaults: { sync_mode: 'cut_off' } }),
   fal('fal-topaz', 'Topaz Video · 2×', 'Topaz', { upscale: 'fal-ai/topaz/upscale/video' }, {
     minDuration: 1, maxDuration: 30, rates: { auto: .08 }, defaultResolution: 'auto', ratios: ['16:9'], audio: 'source',

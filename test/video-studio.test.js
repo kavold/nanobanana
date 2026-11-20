@@ -229,3 +229,39 @@ test('new video tools enforce actual dimensions, matched speech lengths and lega
   assert.equal((await post(s.base, 'quote', form({ model: 'fal-veo-fast', resolution: '4k', duration: '4' }))).status, 400);
   assert.equal(fs.readdirSync(s.directory).length, 1);
 });
+
+test('Sync trims the video to the new speech plus half a second of silence', async t => {
+  let submitted;
+  const s = await setup(t, { FAL_KEY: 'fake' }, {
+    submit: async job => {
+      const pcm = execFileSync('ffmpeg', ['-v', 'error', '-i', job.audioPath, '-f', 's16le', '-']);
+      submitted = { job, pcm };
+      return { remoteId: 'trimmed-sync' };
+    }
+  });
+  const sourcePath = path.join(s.directory, 'source.mp4');
+  execFileSync('ffmpeg', ['-nostdin', '-v', 'error', '-i', path.join(__dirname, 'fixtures/video.mp4'),
+    '-vf', 'tpad=stop_mode=clone:stop_duration=2', '-an', '-c:v', 'libx264', '-threads', '2', sourcePath]);
+  const video = { bytes: fs.readFileSync(sourcePath), type: 'video/mp4', name: 'clip.mp4' };
+  const spoken = speech(3);
+  for (let i = 44; i < spoken.length; i += 2) spoken.writeInt16LE(1500, i);
+  const audio = { bytes: spoken, type: 'audio/wav', name: 'speech.wav' };
+  const fields = { task: 'lipsync', model: 'fal-sync-pro', resolution: 'auto', prompt: '', trimToSpeech: 'true' };
+  const quote = await post(s.base, 'quote', form(fields, { video, audio }));
+  assert.equal(quote.status, 200, JSON.stringify(quote.data));
+  assert.deepEqual(quote.data.speechTiming, { duration: 3.5, trailingSilence: .5 });
+  assert.ok(quote.data.inputVideo.originalDuration > 4);
+  assert.ok(Math.abs(quote.data.inputVideo.duration - 3.5) < .05);
+  assert.equal(quote.data.duration, 4);
+
+  const shortVideo = { ...video, bytes: fs.readFileSync(path.join(__dirname, 'fixtures/video.mp4')) };
+  const tooShort = await post(s.base, 'quote', form(fields, { video: shortVideo, audio }));
+  assert.equal(tooShort.status, 400);
+  assert.match(tooShort.data.error, /Videoen er for kort/);
+
+  assert.equal((await post(s.base, 'jobs', form(fields, { video, audio }))).status, 202);
+  assert.equal(submitted.job.audioMime, 'audio/wav');
+  assert.equal(submitted.pcm.length, 3.5 * 48000 * 2 * 2);
+  assert.ok(submitted.pcm.readInt16LE(48000 * 4) > 0);
+  assert.ok(submitted.pcm.subarray(3 * 48000 * 4).every(byte => byte === 0));
+});

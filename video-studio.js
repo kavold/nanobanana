@@ -3,13 +3,10 @@ const multer = require('multer');
 const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
-const { execFile } = require('node:child_process');
-const { promisify } = require('node:util');
 const { normalizeVideoImage } = require('./video-images');
-const { probeVideo, displaySize, normalizeVideoInput } = require('./video-media');
+const { probeVideo, displaySize, normalizeVideoInput, probeSpeech, padSpeech } = require('./video-media');
 const { VIDEO_MODELS, createProviders } = require('./video-providers');
 const { VIDEO_TASKS, modelDurations, estimateVideo } = require('./video-catalogue');
-const run = promisify(execFile);
 const ACTIVE = new Set(['queued', 'submitting', 'running', 'downloading']);
 
 function createVideoStudio({ readEnv, directory = path.join(__dirname, 'data', 'video'), providers, pollMs = 5000 }) {
@@ -158,15 +155,45 @@ function createVideoStudio({ readEnv, directory = path.join(__dirname, 'data', '
     const data = { task: body.task, model: model.id, prompt: body.prompt.trim(),
       duration: Number(body.duration), aspectRatio: body.aspectRatio,
       resolution: body.resolution || model.defaultResolution || (body.task === 'motion' ? 'auto' : '720p'), audio: body.audio === 'true' };
+    const trimToSpeech = body.task === 'lipsync' && body.trimToSpeech === 'true';
+    const silence = trimToSpeech ? .5 : 0;
+    const mediaTools = { ffmpeg: readEnv('FFMPEG_PATH') || 'ffmpeg', ffprobe: readEnv('FFPROBE_PATH') || 'ffprobe' };
+    let audioDuration;
+    if (files.audio?.[0]) {
+      const file = files.audio[0];
+      if (file.size > 10 * 1024 * 1024) throw new Error('Lydfilen kan være maks 10 MB.');
+      let info;
+      try {
+        info = await probeSpeech(file.path, mediaTools.ffprobe);
+      } catch { throw new Error('Kunne ikke lese lydfilen. Bruk MP3, WAV, M4A, OGG, AAC eller FLAC.'); }
+      const duration = Number(info.format?.duration);
+      if (!info.streams?.some(s => s.codec_type === 'audio') || info.streams.some(s => s.codec_type === 'video') ||
+          !Number.isFinite(duration) || duration + silence < model.minDuration || duration + silence > model.maxDuration) throw new Error(`Lydfilen må inneholde bare lyd og være ${model.minDuration}–${model.maxDuration} sekunder inkludert eventuell stillhet.`);
+      const format = info.format.format_name;
+      data.audioMime = /mp3/.test(format) ? 'audio/mpeg' : /wav/.test(format) ? 'audio/wav' : /ogg/.test(format) ? 'audio/ogg' : /flac/.test(format) ? 'audio/flac' : /aac/.test(format) ? 'audio/aac' : 'audio/mp4';
+      audioDuration = duration;
+      if (trimToSpeech) {
+        audioDuration = await padSpeech(file, mediaTools);
+        if (!Number.isFinite(audioDuration) || Math.abs(audioDuration - duration - silence) > .1 ||
+            audioDuration < model.minDuration || audioDuration > model.maxDuration) {
+          throw new Error('Lydsporet med stillhet har en varighet modellen ikke støtter.');
+        }
+        data.audioMime = 'audio/wav';
+        data.speechTiming = { duration: audioDuration, trailingSilence: silence };
+      }
+      data.audioPath = file.path;
+      data.duration = Math.ceil(audioDuration);
+      data.aspectRatio = 'Fra referansene';
+    }
     if (files.video?.[0]) {
       const file = files.video[0];
       let info;
       try {
-        info = await probeVideo(file.path, readEnv('FFPROBE_PATH') || 'ffprobe');
+        info = await probeVideo(file.path, mediaTools.ffprobe);
       } catch { throw new Error('Kunne ikke lese videoen. MP4/MOV/WebM og ffprobe kreves.'); }
       const duration = Number(info.format?.duration);
-      if (!info.streams?.some(s => s.codec_type === 'video') || !Number.isFinite(duration) || duration < model.minDuration || duration > model.maxDuration) throw new Error(`Fremføringen må være en video på ${model.minDuration}–${model.maxDuration} sekunder.`);
-      const normalized = await normalizeVideoInput(file, info, { ffmpeg: readEnv('FFMPEG_PATH') || 'ffmpeg', ffprobe: readEnv('FFPROBE_PATH') || 'ffprobe',
+      if (!info.streams?.some(s => s.codec_type === 'video') || !Number.isFinite(duration) || (!trimToSpeech && (duration < model.minDuration || duration > model.maxDuration))) throw new Error(`Fremføringen må være en video på ${model.minDuration}–${model.maxDuration} sekunder.`);
+      const normalized = await normalizeVideoInput(file, info, { ...mediaTools, trimTo: trimToSpeech ? audioDuration : undefined,
         task: body.task, minDuration: model.minDuration, maxDuration: model.maxDuration, videoLimits: model.videoLimits });
       info = normalized.info; data.inputVideo = normalized.inputVideo;
       const format = info.format.format_name;
@@ -183,24 +210,10 @@ function createVideoStudio({ readEnv, directory = path.join(__dirname, 'data', '
           (limits.minFps && !(fps >= limits.minFps)) || (limits.maxFps && !(fps <= limits.maxFps)) ||
           (limits.mp4Only && data.videoMime !== 'video/mp4')) throw new Error('Videoens dimensjoner, bildefrekvens eller filformat passer ikke modellen. Se begrensningene ved modellvalget.');
       data.videoDuration = Number(info.format.duration);
-      data.duration = Math.ceil(duration);
-      data.aspectRatio = 'Fra referansene';
-    }
-    if (files.audio?.[0]) {
-      const file = files.audio[0];
-      if (file.size > 10 * 1024 * 1024) throw new Error('Lydfilen kan være maks 10 MB.');
-      let info;
-      try {
-        const { stdout } = await run(readEnv('FFPROBE_PATH') || 'ffprobe', ['-v', 'error', '-protocol_whitelist', 'file', '-format_whitelist', 'wav,mp3,ogg,mov,flac,aac', '-show_entries', 'format=duration,format_name:stream=codec_type,duration', '-of', 'json', file.path], { timeout: 10000, maxBuffer: 128 * 1024 });
-        info = JSON.parse(stdout);
-      } catch { throw new Error('Kunne ikke lese lydfilen. Bruk MP3, WAV, M4A, OGG, AAC eller FLAC.'); }
-      const duration = Number(info.format?.duration);
-      if (!info.streams?.some(s => s.codec_type === 'audio') || info.streams.some(s => s.codec_type === 'video') ||
-          !Number.isFinite(duration) || duration < model.minDuration || duration > model.maxDuration) throw new Error(`Lydfilen må inneholde bare lyd og være ${model.minDuration}–${model.maxDuration} sekunder.`);
-      if (body.task === 'lipsync' && Math.abs(data.videoDuration - duration) > .25) throw new Error('Video og lyd må ha samme varighet (maks 0,25 s forskjell). Tilpass filene før leppesynk.');
-      const format = info.format.format_name;
-      data.audioMime = /mp3/.test(format) ? 'audio/mpeg' : /wav/.test(format) ? 'audio/wav' : /ogg/.test(format) ? 'audio/ogg' : /flac/.test(format) ? 'audio/flac' : /aac/.test(format) ? 'audio/aac' : 'audio/mp4';
-      data.audioPath = file.path; data.duration = Math.ceil(duration);
+      if (body.task === 'lipsync' && Math.abs(data.videoDuration - audioDuration) > .25) {
+        throw new Error('Video og lyd må ha samme varighet (maks 0,25 s forskjell). Velg «Trim videoen etter lydsporet» hvis videoen er lengre.');
+      }
+      if (audioDuration === undefined) data.duration = Math.ceil(duration);
       data.aspectRatio = 'Fra referansene';
     }
     if (files.image?.[0]) {
@@ -244,7 +257,7 @@ function createVideoStudio({ readEnv, directory = path.join(__dirname, 'data', '
         if (files.speech) { files.audio = files.speech; delete files.speech; }
         const data = await prepare(req.body, files);
         if (req.path === '/quote') return res.json({ estimate: data.estimate, reserved: data.reserved,
-          duration: data.duration, aspectRatio: data.aspectRatio, resolution: data.resolution, inputImage: data.inputImage, inputVideo: data.inputVideo,
+          duration: data.duration, aspectRatio: data.aspectRatio, resolution: data.resolution, inputImage: data.inputImage, inputVideo: data.inputVideo, speechTiming: data.speechTiming,
           currency: 'USD', priceDate: '2026-11-19' });
         if (!/^[a-zA-Z0-9-]{16,80}$/.test(req.body.requestId || '')) throw new Error('Ugyldig forespørsels-ID. Last siden på nytt.');
         if (req.body.confirmed !== 'true') throw new Error('Bekreft prisanslaget før generering.');

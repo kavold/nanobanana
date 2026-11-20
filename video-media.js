@@ -14,11 +14,16 @@ function displaySize(stream) {
   return { width: swapped ? stream.height : stream.width, height: swapped ? stream.width : stream.height };
 }
 
-async function normalizeVideoInput(file, info, { ffmpeg = 'ffmpeg', ffprobe = 'ffprobe', task = 'motion', minDuration = 3, maxDuration = 30, videoLimits = {} } = {}) {
+async function normalizeVideoInput(file, info, { ffmpeg = 'ffmpeg', ffprobe = 'ffprobe', task = 'motion', minDuration = 3, maxDuration = 30, videoLimits = {}, trimTo } = {}) {
   const stream = info.streams.find(s => s.codec_type === 'video');
   const original = displaySize(stream), originalBytes = file.size;
   if (![original.width, original.height].every(v => Number.isInteger(v) && v > 0) || original.width * original.height > 33_177_600 || Math.max(original.width, original.height) > 8192) throw new Error('Videobildet er for stort til automatisk klargjøring. Maks 8K input.');
-  const duration = Number(info.format.duration);
+  const originalDuration = Number(info.format.duration);
+  const duration = trimTo ?? originalDuration;
+  const pictureDuration = Number(stream.duration ?? originalDuration);
+  if (trimTo !== undefined && (!Number.isFinite(pictureDuration) || pictureDuration + .001 < trimTo)) {
+    throw new Error('Videoen er for kort til lydsporet med 0,5 sekunder stillhet. Velg en lengre video eller en kortere lydfil.');
+  }
   if (!Number.isFinite(duration) || duration < minDuration || duration > maxDuration) throw new Error(`Videoen må være ${minDuration}–${maxDuration} sekunder før den klargjøres.`);
   const short = Math.min(original.width, original.height), long = Math.max(original.width, original.height);
   if (task === 'upscale' && videoLimits.maxEdge && long > videoLimits.maxEdge) throw new Error(`Dette oppskaleringsvalget støtter maks ${videoLimits.maxEdge} piksler på langsiden. Videoen nedskaleres ikke før oppskalering.`);
@@ -34,7 +39,7 @@ async function normalizeVideoInput(file, info, { ffmpeg = 'ffmpeg', ffprobe = 'f
   const fps = n / d;
   const maxFps = videoLimits.maxFps || 30;
   const maxrate = task === 'motion' ? '3M' : '6M';
-  const needsConversion = factor < 1 || file.size > 40 * 1024 * 1024 || stream.codec_name !== 'h264' || stream.pix_fmt !== 'yuv420p' || fps > maxFps || /webm|matroska/.test(info.format.format_name);
+  const needsConversion = trimTo !== undefined || factor < 1 || file.size > 40 * 1024 * 1024 || stream.codec_name !== 'h264' || stream.pix_fmt !== 'yuv420p' || fps > maxFps || /webm|matroska/.test(info.format.format_name);
   let converted = false;
   if (needsConversion) {
     const output = `${file.path}.normalized.mp4`;
@@ -42,7 +47,7 @@ async function normalizeVideoInput(file, info, { ffmpeg = 'ffmpeg', ffprobe = 'f
       const filter = `scale=${width}:${height}:flags=lanczos${fps > maxFps ? `,fps=${maxFps}` : ''}`;
       await run(ffmpeg, ['-nostdin', '-hide_banner', '-loglevel', 'error', '-y', '-threads', '2',
         '-protocol_whitelist', 'file', '-format_whitelist', 'mov,matroska,webm', '-i', file.path,
-        '-map', '0:v:0', '-map', '0:a:0?', '-filter_threads', '1', '-vf', filter, '-t', String(duration),
+        '-map', '0:v:0', ...(trimTo === undefined ? ['-map', '0:a:0?'] : ['-an']), '-filter_threads', '1', '-vf', filter, '-t', String(duration),
         '-c:v', 'libx264', '-threads', '2', '-preset', 'veryfast', '-crf', task === 'motion' ? '23' : '20', '-maxrate', maxrate, '-bufsize', task === 'motion' ? '6M' : '12M', '-pix_fmt', 'yuv420p',
         '-c:a', 'aac', '-b:a', '96k', '-ac', '2', '-map_metadata', '-1', '-map_chapters', '-1', '-movflags', '+faststart', output],
       { timeout: 90000, maxBuffer: 128 * 1024 });
@@ -57,6 +62,29 @@ async function normalizeVideoInput(file, info, { ffmpeg = 'ffmpeg', ffprobe = 'f
   }
   const size = displaySize(info.streams.find(s => s.codec_type === 'video'));
   return { info, inputVideo: { originalWidth: original.width, originalHeight: original.height, originalBytes,
-    width: size.width, height: size.height, bytes: file.size, converted, duration: Number(info.format.duration) } };
+    width: size.width, height: size.height, originalDuration, bytes: file.size, converted, duration: Number(info.format.duration) } };
 }
-module.exports = { probeVideo, displaySize, normalizeVideoInput };
+const SPEECH_FORMATS = 'wav,mp3,ogg,mov,flac,aac';
+async function probeSpeech(file, ffprobe) {
+  const { stdout } = await run(ffprobe, ['-v', 'error', '-protocol_whitelist', 'file', '-format_whitelist', SPEECH_FORMATS,
+    '-show_entries', 'format=duration,format_name:stream=codec_type,duration', '-of', 'json', file],
+  { timeout: 10000, maxBuffer: 128 * 1024 });
+  return JSON.parse(stdout);
+}
+
+async function padSpeech(file, { ffmpeg, ffprobe }) {
+  const output = `${file.path}.padded.wav`;
+  try {
+    await run(ffmpeg, ['-nostdin', '-v', 'error', '-y', '-threads', '2', '-protocol_whitelist', 'file',
+      '-format_whitelist', SPEECH_FORMATS, '-i', file.path, '-map', '0:a:0', '-af', 'aresample=48000,apad=pad_dur=0.5',
+      '-t', '31', '-ar', '48000', '-ac', '2', '-c:a', 'pcm_s16le', output],
+    { timeout: 30000, maxBuffer: 128 * 1024 });
+    const info = await probeSpeech(output, ffprobe);
+    fs.renameSync(output, file.path);
+    return Number(info.format.duration);
+  } catch {
+    throw new Error('Kunne ikke klargjøre lydsporet. Prøv en annen lydfil.');
+  } finally { fs.rmSync(output, { force: true }); }
+}
+
+module.exports = { probeVideo, displaySize, normalizeVideoInput, probeSpeech, padSpeech };

@@ -106,7 +106,7 @@
     }
     if (m.source) { const a = document.createElement('a'); a.href = m.source; a.target = '_blank'; a.rel = 'noopener noreferrer'; a.textContent = 'Modellens dokumentasjon og pris'; $('videoModelGuide').append(a); }
     $('videoResolutionHelp').textContent = measured ? `Varigheten måles fra ${taskInfo().measured === 'audio' ? 'lydfilen' : 'videoen'}: ${m.minDuration}–${m.maxDuration} s i appen. ${task() === 'talk' ? 'Bildets format brukes.' : 'Formatet følger videofilen.'}` : followsImage(m) ? 'Formatet følger startbildet automatisk. Bildet strekkes eller beskjæres ikke av appen.' : `Velg blant modellens kontrollerte varigheter og formater. Høyere oppløsning kan koste mer.`;
-    $('videoReferenceHelp').textContent = `${m.minDuration}–${m.maxDuration} s, maks 200 MB. Store videoer klargjøres automatisk til komprimert MP4. ${task() === 'motion' ? 'Normalt opptil 720p / 30 fps.' : task() === 'upscale' ? 'Inputoppløsningen beholdes innenfor modellens grense, før oppskalering.' : 'Opptil 1080p, tilpasset modellens minstekrav.'} Dette kan ta litt tid før prisanslaget.${m.videoLimits?.minEdge ? ` Minst ${m.videoLimits.minEdge} piksler på begge sider.` : ''}${m.videoLimits?.maxFps ? ` Maks ${m.videoLimits.maxFps} fps.` : ''}${task() === 'lipsync' ? ' Video og lyd må ha samme varighet (±0,25 s).' : ''}`;
+    $('videoReferenceHelp').textContent = `${m.minDuration}–${m.maxDuration} s, maks 200 MB. Store videoer klargjøres automatisk til komprimert MP4. ${task() === 'motion' ? 'Normalt opptil 720p / 30 fps.' : task() === 'upscale' ? 'Inputoppløsningen beholdes innenfor modellens grense, før oppskalering.' : 'Opptil 1080p, tilpasset modellens minstekrav.'} Dette kan ta litt tid før prisanslaget.${m.videoLimits?.minEdge ? ` Minst ${m.videoLimits.minEdge} piksler på begge sider.` : ''}${m.videoLimits?.maxFps ? ` Maks ${m.videoLimits.maxFps} fps.` : ''}`;
     $('videoPrompt').required = Boolean(taskInfo().promptRequired);
     $('videoPromptGroup').hidden = ['lipsync', 'upscale'].includes(task()) || m.id === 'fal-h3-lipsync';
     $('videoPrompt').maxLength = m.promptMax || 4000;
@@ -129,6 +129,7 @@
     $('videoModel').value = !resetModel && models.some(m => m.id === previous) ? previous : models[0].id;
     $('videoImageGroup').hidden = !taskInfo().inputs.includes('image');
     $('videoReferenceGroup').hidden = !taskInfo().inputs.includes('video');
+    $('videoTrimSpeechGroup').hidden = task() !== 'lipsync';
     $('videoAudioGroup').hidden = !taskInfo().inputs.includes('audio');
     $('videoReferenceLabel').textContent = task() === 'motion' ? 'Video med fremføringen' : 'Videoen du vil bearbeide';
     $('videoSettings').hidden = false;
@@ -155,6 +156,7 @@
       audio: String($('videoAudio').checked), requestId, confirmed: 'true' })) data.set(key, value);
     if (taskInfo().inputs.includes('image') && imageFile) data.set('image', imageFile);
     if (taskInfo().inputs.includes('video') && $('videoReference').files[0]) data.set('video', $('videoReference').files[0]);
+    if (task() === 'lipsync' && $('videoTrimSpeech').checked) data.set('trimToSpeech', 'true');
     if (taskInfo().inputs.includes('audio') && $('videoAudioFile').files[0]) data.set('speech', $('videoAudioFile').files[0]);
     return data;
   }
@@ -174,10 +176,15 @@
       const quote = await api('/quote', { method: 'POST', body: formData() });
       if (revision !== quoteRevision) return;
       $('videoQuoteTitle').textContent = `Anslått pris: ${money(quote.estimate)} USD`;
-      $('videoQuoteDetail').textContent = `${quote.duration} sekunder · ${quote.aspectRatio} · ${quote.resolution}. Ca. ${money(quote.estimate)}, med ${money(quote.reserved)} reservert mot appens grense. Priser kontrollert ${quote.priceDate}. ${connection(model())}.`;
+      const durationLabel = quote.speechTiming ? `${quote.duration} sekunder i prisanslaget` : `${quote.duration} sekunder`;
+      $('videoQuoteDetail').textContent = `${durationLabel} · ${quote.aspectRatio} · ${quote.resolution}. Ca. ${money(quote.estimate)}, med ${money(quote.reserved)} reservert mot appens grense. Priser kontrollert ${quote.priceDate}. ${connection(model())}.`;
       if (quote.inputImage) {
         const image = quote.inputImage;
         $('videoQuoteDetail').textContent += ` Bildet tilpasses fra ${image.originalWidth} × ${image.originalHeight} til ${image.width} × ${image.height} piksler (${(image.bytes / 1024 / 1024).toFixed(1)} MB).`;
+      }
+      if (quote.speechTiming) {
+        const seconds = quote.speechTiming.duration.toLocaleString('nb-NO', { maximumFractionDigits: 2 });
+        $('videoQuoteDetail').textContent += ` Planlagt klipplengde er ${seconds} s, inkludert 0,5 s stillhet på slutten.`;
       }
       if (quote.inputVideo) {
         const video = quote.inputVideo;
