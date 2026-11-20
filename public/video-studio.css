@@ -30,7 +30,7 @@
 .video-history-heading button { width: auto; padding: 8px 14px; font-size: 13px; background: #e2e8f0; color: #334155; }
 .video-job { padding: 20px; border: 1px solid #dce5ed; border-radius: 12px; margin: 14px 0; background: #f8fafc; }
 .video-job h3 { margin: 0 0 6px; color: #164e63; }
-.video-job video { display: block; width: 100%; max-height: 380px; margin: 14px 0; border-radius: 8px; background: #0f172a; }
+.video-job video { display: block; width: auto; height: auto; max-width: 100%; max-height: 380px; margin: 14px auto; border-radius: 8px; }
 .video-job a { display: inline-block; padding: 10px 18px; border-radius: 8px; background: #0f766e; color: white; text-decoration: none; }
 .video-job .video-status { font-weight: 600; color: #0f766e; }
 #videoImagePreview { max-height: 180px; max-width: 100%; border-radius: 10px; }

@@ -265,6 +265,9 @@
         card.append(title, status, prompt, details, message);
         if (job.videoUrl) {
           const video = document.createElement('video'); video.controls = true; video.preload = 'metadata'; video.src = job.videoUrl;
+          video.addEventListener('loadedmetadata', () => {
+            if (video.videoWidth && video.videoHeight) details.textContent += ` · Videofil ${video.videoWidth} × ${video.videoHeight}`;
+          }, { once: true });
           const download = document.createElement('a'); download.href = `${job.videoUrl}?download=1`; download.textContent = 'Last ned video';
           card.append(video, download);
         }
