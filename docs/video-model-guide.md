@@ -111,8 +111,10 @@ uten varig volume. Denne endringen oppretter ikke noe volume eller ny infrastruk
 - Hvert av de 38 fal-endepunktene er kontrollert mot offentlig OpenAPI-skjema.
 - En datert, redusert kontraktssnapshot ligger i `test/fixtures/fal-video-contracts.json`.
 - Tester kontrollerer nødvendige felter, typer, enumvalg, varigheter og køstier.
-- Fremføringsvideoer kan lastes opp til 200 MB. Lokal FFmpeg tilpasser ved behov
-  til H.264/AAC MP4, normalt 720p / maks 30 fps, under 40 MB. Varighet beholdes
+- Alle video-input kan lastes opp til 200 MB. Lokal FFmpeg tilpasser ved behov
+  til H.264/AAC MP4 under 40 MB. Motion bruker normalt 720p / 30 fps; redigering
+  og leppesynk beholder opptil 1080p og modellens FPS-grense. Oppskalering beholder
+  inputdimensjonene og avviser input over 1920 px langside før konvertering. Varighet beholdes
   innen 0,25 s; større avvik eller mislykket konvertering stopper før leverandørkall.
   Originalfilen endres ikke. To encodertråder og 90 s timeout begrenser ressursbruk.
 - Lyd og video analyseres på serveren med ffprobe før pris og innsending. Klienten

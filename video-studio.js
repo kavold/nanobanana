@@ -6,7 +6,7 @@ const crypto = require('node:crypto');
 const { execFile } = require('node:child_process');
 const { promisify } = require('node:util');
 const { normalizeVideoImage } = require('./video-images');
-const { probeVideo, displaySize, normalizeMotionVideo } = require('./video-media');
+const { probeVideo, displaySize, normalizeVideoInput } = require('./video-media');
 const { VIDEO_MODELS, createProviders } = require('./video-providers');
 const { VIDEO_TASKS, modelDurations, estimateVideo } = require('./video-catalogue');
 const run = promisify(execFile);
@@ -160,17 +160,15 @@ function createVideoStudio({ readEnv, directory = path.join(__dirname, 'data', '
       resolution: body.resolution || model.defaultResolution || (body.task === 'motion' ? 'auto' : '720p'), audio: body.audio === 'true' };
     if (files.video?.[0]) {
       const file = files.video[0];
-      if (body.task !== 'motion' && file.size > 50 * 1024 * 1024) throw new Error('Denne videooppgaven støtter maks 50 MB. Automatisk videokomprimering er foreløpig tilgjengelig for «Overfør bevegelser».');
       let info;
       try {
         info = await probeVideo(file.path, readEnv('FFPROBE_PATH') || 'ffprobe');
       } catch { throw new Error('Kunne ikke lese videoen. MP4/MOV/WebM og ffprobe kreves.'); }
       const duration = Number(info.format?.duration);
       if (!info.streams?.some(s => s.codec_type === 'video') || !Number.isFinite(duration) || duration < model.minDuration || duration > model.maxDuration) throw new Error(`Fremføringen må være en video på ${model.minDuration}–${model.maxDuration} sekunder.`);
-      if (body.task === 'motion') {
-        const normalized = await normalizeMotionVideo(file, info, { ffmpeg: readEnv('FFMPEG_PATH') || 'ffmpeg', ffprobe: readEnv('FFPROBE_PATH') || 'ffprobe' });
-        info = normalized.info; data.inputVideo = normalized.inputVideo;
-      }
+      const normalized = await normalizeVideoInput(file, info, { ffmpeg: readEnv('FFMPEG_PATH') || 'ffmpeg', ffprobe: readEnv('FFPROBE_PATH') || 'ffprobe',
+        task: body.task, minDuration: model.minDuration, maxDuration: model.maxDuration, videoLimits: model.videoLimits });
+      info = normalized.info; data.inputVideo = normalized.inputVideo;
       const format = info.format.format_name;
       data.videoMime = /webm|matroska/.test(format) ? 'video/webm' : 'video/mp4';
       if (!/webm|matroska|mp4|mov/.test(format)) throw new Error('Bruk MP4, MOV eller WebM.');
@@ -184,7 +182,7 @@ function createVideoStudio({ readEnv, directory = path.join(__dirname, 'data', '
       if ((limits.minEdge && edge < limits.minEdge) || (limits.maxEdge && long > limits.maxEdge) ||
           (limits.minFps && !(fps >= limits.minFps)) || (limits.maxFps && !(fps <= limits.maxFps)) ||
           (limits.mp4Only && data.videoMime !== 'video/mp4')) throw new Error('Videoens dimensjoner, bildefrekvens eller filformat passer ikke modellen. Se begrensningene ved modellvalget.');
-      data.videoDuration = duration;
+      data.videoDuration = Number(info.format.duration);
       data.duration = Math.ceil(duration);
       data.aspectRatio = 'Fra referansene';
     }
@@ -240,7 +238,7 @@ function createVideoStudio({ readEnv, directory = path.join(__dirname, 'data', '
     upload(req, res, async error => {
       let retained = false;
       try {
-        if (error) throw new Error('Opplastingen feilet. Maks 200 MB for fremføringsvideo, 50 MB for bilde og 10 MB for lyd.');
+        if (error) throw new Error('Opplastingen feilet. Maks 200 MB for video, 50 MB for bilde og 10 MB for lyd.');
         const files = req.files || {};
         // Keep the boolean audio option separate from the uploaded speech file.
         if (files.speech) { files.audio = files.speech; delete files.speech; }
@@ -265,7 +263,7 @@ function createVideoStudio({ readEnv, directory = path.join(__dirname, 'data', '
         res.status(202).json(publicJob(job));
         tick().catch(() => {});
       } catch (err) {
-        res.status(400).json({ error: error ? 'Opplastingen feilet. Maks 200 MB for fremføringsvideo, 50 MB for bilde og 10 MB for lyd.' : (err.message.includes('Input buffer') || err.message.includes('unsupported image') ? 'Ugyldig bildefil.' : err.message) });
+        res.status(400).json({ error: error ? 'Opplastingen feilet. Maks 200 MB for video, 50 MB for bilde og 10 MB for lyd.' : (err.message.includes('Input buffer') || err.message.includes('unsupported image') ? 'Ugyldig bildefil.' : err.message) });
       } finally {
         if (!retained) for (const f of Object.values(req.files || {}).flat()) fs.rmSync(f.path, { force: true });
         accepting = false;

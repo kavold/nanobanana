@@ -56,14 +56,16 @@ en egen flyt med opplastet lydfil. Norsk tale og kvalitet er ikke verifisert ved
 
 Opplastet lyd/video krever `ffprobe` på serverens PATH (eller `FFPROBE_PATH`).
 Faktisk varighet, dimensjoner og relevante FPS-krav kontrolleres før generering.
-Fremføringsvideo til «Overfør bevegelser» kan være opptil 200 MB. Appen kontrollerer
-3–30 s før klargjøring, og komprimerer ved behov til H.264 MP4 med AAC-lyd, normalt
-opptil 720p / 30 fps og under 40 MB. Ingen beskjæring eller oppskalering; originalen
-endres ikke. Komprimeringen bruker lokal FFmpeg (`FFMPEG_PATH`), maks to
-encodertråder og 90 s timeout. Særlig brede formater kan beholde mer enn 1280 px
-langside for å unngå å bryte Klings minimumsstørrelse. Opplastinger med videobilde
-over 8K avvises. Prisanslaget viser tilpassede dimensjoner og filstørrelse.
-Andre videooppgaver har maks 50 MB og modellens varighet, maks 30 s i appen.
+Alle videooppgaver støtter opplasting opptil 200 MB og automatisk klargjøring ved
+behov til H.264 MP4 med AAC-lyd, under 40 MB. Varigheten kontrolleres før
+komprimering. «Overfør bevegelser» bruker normalt opptil 720p / 30 fps.
+Videoredigering og leppesynk beholder opptil 1080p, med modellens minstedimensjoner
+og FPS-grenser; Kling Edit kan beholde 60 fps. Oppskalering beholder inputstørrelsen
+og avviser video over appens grense på 1920 px langside, i stedet for å nedskalere
+før oppskalering. Ingen beskjæring eller oppskalering i klargjøringen; originalen
+endres ikke. Lokal FFmpeg (`FFMPEG_PATH`) bruker maks to encodertråder og 90 s
+timeout. Videobilde over 8K avvises. Prisanslaget viser dimensjoner og størrelse
+før og etter tilpasning. Appens øvrige varighetsgrenser gjelder fortsatt, maks 30 s.
 Tale er maks 10 MB, 3–30 s (H3 Lip Sync: 5–30 s). Leppesynk krever at video
 og lyd har samme varighet innen 0,25 s. API-et bruker tekstfeltet `audio` for
 lydvalget og filfeltet `speech` for lydfilen, slik at feltene ikke kolliderer.

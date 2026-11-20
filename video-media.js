@@ -14,34 +14,42 @@ function displaySize(stream) {
   return { width: swapped ? stream.height : stream.width, height: swapped ? stream.width : stream.height };
 }
 
-async function normalizeMotionVideo(file, info, { ffmpeg = 'ffmpeg', ffprobe = 'ffprobe' } = {}) {
+async function normalizeVideoInput(file, info, { ffmpeg = 'ffmpeg', ffprobe = 'ffprobe', task = 'motion', minDuration = 3, maxDuration = 30, videoLimits = {} } = {}) {
   const stream = info.streams.find(s => s.codec_type === 'video');
   const original = displaySize(stream), originalBytes = file.size;
   if (![original.width, original.height].every(v => Number.isInteger(v) && v > 0) || original.width * original.height > 33_177_600 || Math.max(original.width, original.height) > 8192) throw new Error('Videobildet er for stort til automatisk klargjøring. Maks 8K input.');
   const duration = Number(info.format.duration);
-  if (!Number.isFinite(duration) || duration < 3 || duration > 30) throw new Error('Fremføringen må være 3–30 sekunder før videoen klargjøres.');
+  if (!Number.isFinite(duration) || duration < minDuration || duration > maxDuration) throw new Error(`Videoen må være ${minDuration}–${maxDuration} sekunder før den klargjøres.`);
   const short = Math.min(original.width, original.height), long = Math.max(original.width, original.height);
-  const factor = Math.min(1, Math.max(Math.min(720 / short, 1280 / long), 340 / short));
+  if (task === 'upscale' && videoLimits.maxEdge && long > videoLimits.maxEdge) throw new Error(`Dette oppskaleringsvalget støtter maks ${videoLimits.maxEdge} piksler på langsiden. Videoen nedskaleres ikke før oppskalering.`);
+  // Motion references can be small; editing/lipsync retain up to 1080p.
+  // Upscaling preserves input dimensions within the model's input limit.
+  const targetShort = task === 'motion' ? 720 : task === 'upscale' ? Infinity : 1080;
+  const targetLong = Math.min(task === 'motion' ? 1280 : 1920, videoLimits.maxEdge || Infinity);
+  const minimumEdge = videoLimits.minEdge || (task === 'motion' ? 340 : 0);
+  const factor = Math.min(1, Math.max(Math.min(targetShort / short, targetLong / long), minimumEdge / short));
   const width = Math.max(2, Math.floor(original.width * factor / 2) * 2);
   const height = Math.max(2, Math.floor(original.height * factor / 2) * 2);
   const [n, d = 1] = (stream.r_frame_rate || '').split('/').map(Number);
   const fps = n / d;
-  const needsConversion = factor < 1 || file.size > 40 * 1024 * 1024 || stream.codec_name !== 'h264' || stream.pix_fmt !== 'yuv420p' || fps > 30 || /webm|matroska/.test(info.format.format_name);
+  const maxFps = videoLimits.maxFps || 30;
+  const maxrate = task === 'motion' ? '3M' : '6M';
+  const needsConversion = factor < 1 || file.size > 40 * 1024 * 1024 || stream.codec_name !== 'h264' || stream.pix_fmt !== 'yuv420p' || fps > maxFps || /webm|matroska/.test(info.format.format_name);
   let converted = false;
   if (needsConversion) {
     const output = `${file.path}.normalized.mp4`;
     try {
-      const filter = `scale=${width}:${height}:flags=lanczos${fps > 30 ? ',fps=30' : ''}`;
+      const filter = `scale=${width}:${height}:flags=lanczos${fps > maxFps ? `,fps=${maxFps}` : ''}`;
       await run(ffmpeg, ['-nostdin', '-hide_banner', '-loglevel', 'error', '-y', '-threads', '2',
         '-protocol_whitelist', 'file', '-format_whitelist', 'mov,matroska,webm', '-i', file.path,
         '-map', '0:v:0', '-map', '0:a:0?', '-filter_threads', '1', '-vf', filter, '-t', String(duration),
-        '-c:v', 'libx264', '-threads', '2', '-preset', 'veryfast', '-crf', '23', '-maxrate', '3M', '-bufsize', '6M', '-pix_fmt', 'yuv420p',
+        '-c:v', 'libx264', '-threads', '2', '-preset', 'veryfast', '-crf', task === 'motion' ? '23' : '20', '-maxrate', maxrate, '-bufsize', task === 'motion' ? '6M' : '12M', '-pix_fmt', 'yuv420p',
         '-c:a', 'aac', '-b:a', '96k', '-ac', '2', '-map_metadata', '-1', '-map_chapters', '-1', '-movflags', '+faststart', output],
       { timeout: 90000, maxBuffer: 128 * 1024 });
       const normalized = await probeVideo(output, ffprobe);
       const video = normalized.streams?.find(s => s.codec_type === 'video');
       const bytes = fs.statSync(output).size;
-      if (!video || bytes > 40 * 1024 * 1024 || Math.abs(Number(normalized.format?.duration) - duration) > .25) throw new Error('invalid conversion');
+      if (!video || bytes > 40 * 1024 * 1024 || !Number.isFinite(Number(normalized.format?.duration)) || Math.abs(Number(normalized.format.duration) - duration) > .25) throw new Error('invalid conversion');
       fs.renameSync(output, file.path); file.size = bytes; info = normalized; converted = true;
     } catch {
       throw new Error('Videoen kunne ikke komprimeres automatisk. Bruk et kortere MP4-klipp, eller prøv en mindre fil. Ingen generering er startet.');
@@ -51,4 +59,4 @@ async function normalizeMotionVideo(file, info, { ffmpeg = 'ffmpeg', ffprobe = '
   return { info, inputVideo: { originalWidth: original.width, originalHeight: original.height, originalBytes,
     width: size.width, height: size.height, bytes: file.size, converted, duration: Number(info.format.duration) } };
 }
-module.exports = { probeVideo, displaySize, normalizeMotionVideo };
+module.exports = { probeVideo, displaySize, normalizeVideoInput };
