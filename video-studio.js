@@ -75,6 +75,11 @@ function createVideoStudio({ readEnv, directory = path.join(__dirname, 'data', '
     job.status = 'completed'; job.completedAt = new Date().toISOString();
     job.message = 'Videoen er klar.';
     cleanInputs(job); save();
+    if (job.falInputUrls) {
+      try { await adapters.cleanupInputs?.(job); } catch { /* fal expiration is the fallback. */ }
+      delete job.falInputUrls;
+      save();
+    }
   }
   async function tick() {
     if (busy) return;
@@ -86,6 +91,7 @@ function createVideoStudio({ readEnv, directory = path.join(__dirname, 'data', '
         job.status = 'submitting'; save();
         const result = await adapters.submit(job);
         if (result.remoteId) {
+          if (result.falInputUrls) job.falInputUrls = result.falInputUrls;
           job.remoteId = result.remoteId; job.status = 'running';
           job.message = 'Genereres hos leverandøren.'; cleanInputs(job); save();
         } else await finish(job, result);

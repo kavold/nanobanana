@@ -1,4 +1,5 @@
 const fs = require('node:fs');
+const { randomUUID } = require('node:crypto');
 const { FAL_MODELS } = require('./video-catalogue');
 
 // Prices checked 2026-11-19. Output estimates only; the studio reserves a margin.
@@ -9,9 +10,9 @@ const VIDEO_MODELS = [
   ...FAL_MODELS
 ];
 
-function falInput(model, job) {
+function falInput(model, job, hostedFiles = {}) {
   const body = { ...(model.defaults || {}) };
-  const file = (kind) => `data:${job[`${kind}Mime`]};base64,${fs.readFileSync(job[`${kind}Path`]).toString('base64')}`;
+  const file = (kind) => hostedFiles[kind] || `data:${job[`${kind}Mime`]};base64,${fs.readFileSync(job[`${kind}Path`]).toString('base64')}`;
   if (!['lipsync', 'upscale'].includes(job.task) && model.id !== 'fal-h3-lipsync') body.prompt = job.prompt || '.';
   if (['text', 'image'].includes(job.task)) {
     body.duration = model.id === 'fal-veo-fast' ? `${job.duration}s` : model.durationString ? String(job.duration) : job.duration;
@@ -54,7 +55,8 @@ async function validationError(response) {
   const names = [...new Set(details.flatMap(detail => Array.isArray(detail.loc) ? detail.loc.filter(key => Object.hasOwn(fields, key)).map(key => fields[key]) : []))];
   const text = [...details.map(detail => `${typeof detail.type === 'string' ? detail.type : ''} ${typeof detail.msg === 'string' ? detail.msg : ''}`), typeof data?.detail === 'string' ? data.detail : '', typeof data?.error === 'string' ? data.error : ''].join(' ').toLowerCase();
   let hint = 'Kontroller filformat, størrelse og modellens inputkrav.';
-  if (/width|height|dimension|aspect|resolution|pixel/.test(text)) hint = 'Filens dimensjoner eller sideforhold ble avvist. Se modellens krav til oppløsning og format.';
+  if (/inline data|publicly accessible http/.test(text)) hint = 'Modellen krever tilgjengelige HTTPS-lenker til filene.';
+  else if (/width|height|dimension|aspect|resolution|pixel/.test(text)) hint = 'Filens dimensjoner eller sideforhold ble avvist. Se modellens krav til oppløsning og format.';
   else if (/duration|too short|too long/.test(text)) hint = 'Lengden ble avvist. Kontroller modellens minste og største varighet.';
   else if (/face|person|character|human/.test(text)) hint = 'Leverandøren kunne ikke bruke personen eller figuren i referansen. Bruk en tydelig fremføring og et tydelig bilde uten tildekking.';
   else if (/file.size|too large|megabyte|maximum.*bytes/.test(text)) hint = 'En fil er for stor for modellen. Kortere eller mer komprimert input kreves.';
@@ -63,21 +65,66 @@ async function validationError(response) {
 }
 
 function createProviders(readEnv, fetchImpl = fetch) {
-  async function json(url, key, body, google = false) {
+  async function json(url, key, body, google = false, headers = {}) {
     const response = await fetchImpl(url, {
       method: body ? 'POST' : 'GET',
       headers: { ...(body ? { 'Content-Type': 'application/json' } : {}),
-        ...(google ? { 'x-goog-api-key': key } : { Authorization: key }) },
+        ...(google ? { 'x-goog-api-key': key } : { Authorization: key }), ...headers },
       ...(body ? { body: JSON.stringify(body) } : {}),
       signal: AbortSignal.timeout(body ? 10 * 60 * 1000 : 30000), redirect: 'error'
     });
     if (!response.ok) throw new Error(response.status === 422 ? await validationError(response) || safeProviderError(response.status) : safeProviderError(response.status));
     return response.json();
   }
+  function isFalFileUrl(value) {
+    try {
+      const url = new URL(value);
+      return url.protocol === 'https:' && url.hostname.endsWith('.fal.media') &&
+        !url.username && !url.password && !url.port;
+    } catch { return false; }
+  }
+
+  async function uploadFalFile(job, kind, key) {
+    const contentType = job[`${kind}Mime`];
+    const extension = { 'video/mp4': 'mp4', 'video/webm': 'webm', 'audio/mpeg': 'mp3',
+      'audio/wav': 'wav', 'audio/ogg': 'ogg', 'audio/flac': 'flac', 'audio/aac': 'aac', 'audio/mp4': 'm4a' }[contentType];
+    try {
+      if (!extension) throw new Error('Unsupported upload type');
+      const { upload_url, file_url } = await json(
+        'https://rest.fal.ai/storage/upload/initiate?storage_type=fal-cdn-v3', `Key ${key}`,
+        { content_type: contentType, file_name: `${randomUUID()}.${extension}` }, false,
+        { 'X-Fal-Object-Lifecycle': JSON.stringify({ expiration_duration_seconds: 7200, initial_acl: { default: 'allow' } }) }
+      );
+      if (!isFalFileUrl(upload_url) || !isFalFileUrl(file_url)) throw new Error('Unexpected fal URL');
+      const response = await fetchImpl(upload_url, {
+        method: 'PUT', headers: { 'Content-Type': contentType }, body: await fs.promises.readFile(job[`${kind}Path`]),
+        signal: AbortSignal.timeout(120000), redirect: 'error'
+      });
+      if (!response.ok) throw new Error('Upload failed');
+      return file_url;
+    } catch {
+      const label = kind === 'video' ? 'videoen' : 'lyden';
+      throw new Error(`Leverandøren kunne ikke ta imot ${label} for leppesynk. Ingen generering er startet.`);
+    }
+  }
+
+  async function cleanupInputs(job) {
+    if (job.model !== 'fal-sync-pro' || !Array.isArray(job.falInputUrls)) return;
+    const key = readEnv('FAL_KEY');
+    if (!key) return;
+    await Promise.allSettled(job.falInputUrls.filter(isFalFileUrl).map(file_url =>
+      fetchImpl('https://rest.fal.ai/storage/files/delete', {
+        method: 'POST', headers: { Authorization: `Key ${key}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ file_url }), signal: AbortSignal.timeout(5000), redirect: 'error'
+      }).then(response => response.body?.cancel())
+    ));
+  }
+
   function image(job) {
     return `data:${job.imageMime};base64,${fs.readFileSync(job.imagePath).toString('base64')}`;
   }
   return {
+    cleanupInputs,
     async submit(job) {
       const model = VIDEO_MODELS.find(m => m.id === job.model);
       const key = readEnv(model.key);
@@ -92,9 +139,20 @@ function createProviders(readEnv, fetchImpl = fetch) {
         return { remoteId: data.request_id };
       }
       if (model.provider === 'fal') {
-        const data = await json(`https://queue.fal.run/${model.endpoints[job.task]}`, `Key ${key}`, falInput(model, job));
+        const hostedFiles = {};
+        if (model.id === 'fal-sync-pro') {
+          try {
+            for (const kind of ['video', 'audio']) hostedFiles[kind] = await uploadFalFile(job, kind, key);
+          } catch (error) {
+            await cleanupInputs({ model: job.model, falInputUrls: Object.values(hostedFiles) });
+            throw error;
+          }
+        }
+        const data = await json(`https://queue.fal.run/${model.endpoints[job.task]}`, `Key ${key}`,
+          falInput(model, job, hostedFiles));
         if (!data.request_id) throw new Error('Leverandøren returnerte ikke en jobb-ID.');
-        return { remoteId: data.request_id };
+        // Keep the files until we have saved the result. Expiration covers interrupted requests.
+        return { remoteId: data.request_id, ...(model.id === 'fal-sync-pro' && { falInputUrls: Object.values(hostedFiles) }) };
       }
       const input = [{ type: 'text', text: job.prompt }];
       if (job.task === 'image') input.unshift({ type: 'image', mime_type: job.imageMime,

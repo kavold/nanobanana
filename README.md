@@ -69,6 +69,9 @@ før og etter tilpasning. Appens øvrige varighetsgrenser gjelder fortsatt, maks
 Tale er maks 10 MB, 3–30 s (H3 Lip Sync: 5–30 s). Leppesynk krever at video
 og lyd har samme varighet innen 0,25 s, eller at du velger «Trim videoen etter lydsporet».
 Det valget legger til 0,5 s stillhet og klipper videoen til lydsporets nye lengde.
+Når Sync-jobben startes, lastes de klargjorte filene opp til fal med lenker som
+utløper etter to timer. Appen forsøker å slette filene når resultatet er lagret.
+Alle med lenken kan lese filen frem til sletting eller utløp.
 API-et bruker tekstfeltet `audio` for
 lydvalget og filfeltet `speech` for lydfilen, slik at feltene ikke kolliderer.
 Bilder begrenses til 50 MB JPG/PNG/WebP, roteres etter EXIF, forminskes til valgt

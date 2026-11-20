@@ -81,3 +81,55 @@ test('provider download blocks other storage buckets, credentials and redirects'
   assert.equal((await provider.download('https://storage.googleapis.com/falserverless/output/test.mp4')).toString(), 'file');
   assert.equal(calls, 1);
 });
+
+test('Sync uploads prepared media with expiration, submits HTTPS links and can delete its inputs', async t => {
+  const file = path.join(__dirname, 'fixtures/video.mp4');
+  const requests = [];
+  const provider = createProviders(() => 'test-key', async (url, options) => {
+    requests.push({ url, ...options });
+    if (url.includes('/upload/initiate')) {
+      const { content_type } = JSON.parse(options.body);
+      const kind = content_type.split('/')[0];
+      return Response.json({
+        upload_url: `https://v3-uploads.fal.media/${kind}?signature=placeholder`,
+        file_url: `https://v3b.fal.media/files/${kind}`
+      });
+    }
+    return Response.json({ request_id: 'sync-request' });
+  });
+  const job = { model: 'fal-sync-pro', task: 'lipsync', videoPath: file, videoMime: 'video/mp4',
+    audioPath: file, audioMime: 'audio/wav' };
+  const request = await provider.submit(job);
+  assert.equal(request.remoteId, 'sync-request');
+  assert.equal(requests.length, 5);
+  for (const i of [0, 2]) {
+    assert.equal(JSON.parse(requests[i].headers['X-Fal-Object-Lifecycle']).expiration_duration_seconds, 7200);
+    assert.equal(requests[i + 1].method, 'PUT');
+    assert.equal(requests[i + 1].headers.Authorization, undefined);
+    assert.deepEqual(requests[i + 1].body, fs.readFileSync(file));
+  }
+  assert.deepEqual(JSON.parse(requests[4].body), {
+    sync_mode: 'cut_off', video_url: 'https://v3b.fal.media/files/video', audio_url: 'https://v3b.fal.media/files/audio'
+  });
+  await provider.cleanupInputs({ ...job, ...request });
+  assert.deepEqual(requests.slice(5).map(call => [call.url, JSON.parse(call.body).file_url]),
+    request.falInputUrls.map(url => ['https://rest.fal.ai/storage/files/delete', url]));
+});
+
+test('Sync never submits a generation when a prepared upload fails', async () => {
+  const calls = [];
+  const provider = createProviders(() => 'test-key', async (url, options) => {
+    calls.push(url);
+    if (url.includes('/upload/initiate')) {
+      const type = JSON.parse(options.body).content_type;
+      if (type === 'audio/wav') return new Response(null, { status: 403 });
+      return Response.json({ upload_url: 'https://v3-uploads.fal.media/upload', file_url: 'https://v3b.fal.media/files/video' });
+    }
+    return new Response(null, { status: 204 });
+  });
+  const file = path.join(__dirname, 'fixtures/video.mp4');
+  await assert.rejects(provider.submit({ model: 'fal-sync-pro', task: 'lipsync', videoPath: file, videoMime: 'video/mp4',
+    audioPath: file, audioMime: 'audio/wav' }), /lyden.*Ingen generering/);
+  assert.equal(calls.some(url => url.includes('queue.fal.run')), false);
+  assert.equal(calls.at(-1), 'https://rest.fal.ai/storage/files/delete');
+});
